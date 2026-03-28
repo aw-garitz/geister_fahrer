@@ -8,57 +8,108 @@ class MainDashboard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Wir nutzen das Electric Blue aus dem Logo als Hauptakzent
+    const Color ghostBlue = Color(0xFF00B4FF); 
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('GHOST RIDE'),
-        centerTitle: true,
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16.0),
-            child: Icon(
-              SensorService().isBarometerAvailable 
-                ? Icons.height 
-                : Icons.height_outlined,
-              color: SensorService().isBarometerAvailable ? Colors.green : Colors.grey,
+      backgroundColor: Colors.black, // Maximaler Kontrast für das OLED
+      body: Stack(
+        children: [
+          // Subtiler Hintergrund-Gradient für Tiefe
+          Positioned(
+            top: -100,
+            right: -100,
+            child: Container(
+              width: 300,
+              height: 300,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: ghostBlue.withOpacity(0.05),
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 40),
+                  // Header mit Barometer-Status
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "GEISTER",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 42,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 4,
+                              height: 0.9,
+                            ),
+                          ),
+                          Text(
+                            "FAHRER",
+                            style: TextStyle(
+                              color: ghostBlue,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w300,
+                              letterSpacing: 10,
+                            ),
+                          ),
+                        ],
+                      ),
+                      // Barometer-Icon (funktional & schick)
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          SensorService().isBarometerAvailable 
+                            ? Icons.height 
+                            : Icons.height_outlined,
+                          color: SensorService().isBarometerAvailable ? Colors.cyanAccent : Colors.grey,
+                          size: 28,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  // Die Buttons im neuen Vektor-Style
+                  _DashboardButton(
+                    title: 'FREIE FAHRT',
+                    subtitle: 'Neue Strecke erkunden',
+                    icon: Icons.add_location_alt_outlined,
+                    color: Colors.white,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const RecordingScreen()),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _DashboardButton(
+                    title: 'GEGEN GEIST',
+                    subtitle: 'Schlag deine Bestzeit',
+                    icon: Icons.directions_bike,
+                    color: ghostBlue,
+                    isGhostMode: true,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const GhostSelectionScreen()),
+                    ),
+                  ),
+                  const SizedBox(height: 60),
+                ],
+              ),
             ),
           ),
         ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          children: [
-            const SizedBox(height: 20),
-            Expanded(
-              child: _DashboardButton(
-                title: 'NEUE STRECKE\nAUFZEICHNEN',
-                icon: Icons.add_location_alt,
-                color: Colors.green.shade600,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const RecordingScreen()),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 20),
-            Expanded(
-              child: _DashboardButton(
-                title: 'GEGEN GEIST\nFAHREN',
-                icon: Icons.directions_bike,
-                color: Colors.orange.shade700,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const GhostSelectionScreen()),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
       ),
     );
   }
@@ -66,50 +117,70 @@ class MainDashboard extends StatelessWidget {
 
 class _DashboardButton extends StatelessWidget {
   final String title;
+  final String subtitle;
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
+  final bool isGhostMode;
 
   const _DashboardButton({
     required this.title,
+    required this.subtitle,
     required this.icon,
     required this.color,
     required this.onTap,
+    this.isGhostMode = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    return GestureDetector(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
       child: Container(
         width: double.infinity,
+        padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
+          color: isGhostMode ? color.withOpacity(0.1) : Colors.white.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: color.withOpacity(0.3),
+            width: 1.5,
+          ),
+          boxShadow: isGhostMode ? [
             BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
+              color: color.withOpacity(0.15),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            )
+          ] : [],
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Row(
           children: [
-            Icon(icon, size: 60, color: Colors.white),
-            const SizedBox(height: 15),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.2,
-              ),
+            Icon(icon, size: 40, color: color),
+            const SizedBox(width: 20),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: color.withOpacity(0.6),
+                    fontSize: 14,
+                  ),
+                ),
+              ],
             ),
+            const Spacer(),
+            Icon(Icons.arrow_forward_ios, size: 16, color: color.withOpacity(0.3)),
           ],
         ),
       ),

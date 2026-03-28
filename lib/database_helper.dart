@@ -1,5 +1,6 @@
-import 'package:sqflite/sqflite.dart';
+import 'dart:async';
 import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -19,15 +20,19 @@ class DatabaseHelper {
     return await openDatabase(
       path,
       version: 1,
+      // Aktiviert Foreign Keys (wichtig für ON DELETE CASCADE)
+      onConfigure: (db) async => await db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, version) async {
-        // Tabelle für die Touren (Kopfdaten)
+        // Tabelle für die Touren (Kopfdaten) inklusive Favoriten-Status
         await db.execute('''
           CREATE TABLE tours(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
-            date TEXT
+            date TEXT,
+            is_favorite INTEGER DEFAULT 0
           )
         ''');
+        
         // Tabelle für die einzelnen GPS-Punkte
         await db.execute('''
           CREATE TABLE track_points(
@@ -53,6 +58,7 @@ class DatabaseHelper {
       int tourId = await txn.insert('tours', {
         'name': name,
         'date': DateTime.now().toIso8601String(),
+        'is_favorite': 0, // Standardmäßig kein Favorit
       });
 
       // 2. Alle Punkte dieser Tour zuordnen und speichern
@@ -67,11 +73,12 @@ class DatabaseHelper {
       }
     });
   }
+
   // Alle Touren auslesen (für die Liste)
   Future<List<Map<String, dynamic>>> getAllTours() async {
     final db = await database;
-    // Wir sortieren nach ID absteigend, damit die neueste Tour oben steht
-    return await db.query('tours', orderBy: 'id DESC');
+    // Wir holen einfach alle – die Sortierung machen wir im Screen (wegen der Favoriten)
+    return await db.query('tours');
   }
 
   // Eine Tour löschen (inkl. aller zugehörigen Punkte dank ON DELETE CASCADE)
@@ -83,6 +90,17 @@ class DatabaseHelper {
   // Alle Punkte einer spezifischen Tour laden (für das Rennen gegen den Geist)
   Future<List<Map<String, dynamic>>> getTourPoints(int tourId) async {
     final db = await database;
-    return await db.query('track_points', where: 'tour_id = ?', whereArgs: [tourId]);
+    return await db.query('track_points', where: 'tour_id = ?', whereArgs: [tourId], orderBy: 'id ASC');
+  }
+
+  // Favoriten-Status aktualisieren
+  Future<int> updateFavorite(int id, int status) async {
+    final db = await database;
+    return await db.update(
+      'tours',
+      {'is_favorite': status},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 }
