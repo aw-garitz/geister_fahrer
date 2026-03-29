@@ -4,6 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../database_helper.dart';
 
 class RecordingScreen extends StatefulWidget {
@@ -27,12 +28,15 @@ class _RecordingScreenState extends State<RecordingScreen> {
   LatLng? _currentPosition;
   LatLng? _ghostPosition;
   LatLng? _targetPosition;
+  double _currentHeading = 0.0; // NEU: Blickrichtung
 
   double _distanceDiff = 0.0; 
-  double _timeDiffSeconds = 0.0; // Differenz in Sekunden
+  double _timeDiffSeconds = 0.0;
 
   bool _isRecording = false;
   bool _isCountingDown = true;
+  bool _autoZoomActive = true; 
+  
   int _countdownSeconds = 5;
   double _targetRadius = 25.0;
   bool _goalLocked = true; 
@@ -42,12 +46,33 @@ class _RecordingScreenState extends State<RecordingScreen> {
   Timer? _ghostTicker;
   StreamSubscription<Position>? _positionStream;
   
-  final Color ghostBlue = const Color(0xFF00B4FF);
+  // Kontraststarke Neon-Farben
+  final Color ghostNeonBlue = const Color(0xFF00E5FF);
+  final Color userNeonGreen = const Color(0xFF00FF00);
+  final Color ghostLineYellow = const Color(0xFFFFEA00);
 
   @override
   void initState() {
     super.initState();
+    WakelockPlus.enable(); 
     _prepareRace();
+  }
+
+  void _fitAllPoints() {
+    List<LatLng> pointsToShow = [];
+    if (_currentPosition != null) pointsToShow.add(_currentPosition!);
+    if (_ghostPosition != null) pointsToShow.add(_ghostPosition!);
+    if (_targetPosition != null) pointsToShow.add(_targetPosition!);
+
+    if (pointsToShow.length >= 2) {
+      final bounds = LatLngBounds.fromPoints(pointsToShow);
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: bounds,
+          padding: const EdgeInsets.all(70.0),
+        ),
+      );
+    }
   }
 
   Future<void> _prepareRace() async {
@@ -70,7 +95,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
         _targetRadius = prefs.getDouble('target_radius') ?? 25.0;
       });
     }
-    
     _updateLocation();
     _startCountdown();
   }
@@ -90,7 +114,10 @@ class _RecordingScreenState extends State<RecordingScreen> {
     try {
       Position pos = await Geolocator.getCurrentPosition();
       if (mounted) {
-        setState(() => _currentPosition = LatLng(pos.latitude, pos.longitude));
+        setState(() {
+          _currentPosition = LatLng(pos.latitude, pos.longitude);
+          _currentHeading = pos.heading;
+        });
         _mapController.move(_currentPosition!, 18);
       }
     } catch (e) {
@@ -114,6 +141,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
     _ghostTicker = Timer.periodic(const Duration(milliseconds: 200), (timer) {
       if (_isRecording && _startTime != null) {
         _updateStats();
+        if (_autoZoomActive) _fitAllPoints();
       }
     });
 
@@ -139,7 +167,11 @@ class _RecordingScreenState extends State<RecordingScreen> {
         setState(() {
           _currentPosition = userPos;
           _polylinePoints.add(userPos);
-          _mapController.move(userPos, 18);
+          _currentHeading = position.heading;
+
+          if (!_autoZoomActive) {
+            _mapController.move(userPos, _mapController.camera.zoom);
+          }
 
           if (_goalLocked && _recordedPoints.isNotEmpty) {
             double distFromStart = Geolocator.distanceBetween(
@@ -170,7 +202,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
     DateTime ghostStart = DateTime.parse(_ghostPoints.first['timestamp']);
     Map<String, dynamic>? currentGhostPoint;
     
-    // Aktuelle Position des Geistes finden
     for (var p in _ghostPoints) {
       if (DateTime.parse(p['timestamp']).difference(ghostStart) >= elapsed) {
         currentGhostPoint = p;
@@ -182,31 +213,18 @@ class _RecordingScreenState extends State<RecordingScreen> {
     if (mounted) {
       setState(() {
         _ghostPosition = LatLng(currentGhostPoint!['lat'], currentGhostPoint['lng']);
-        
         if (_currentPosition != null) {
-          // 1. Meter Abstand
-          double dist = Geolocator.distanceBetween(
-            _currentPosition!.latitude, _currentPosition!.longitude,
-            _ghostPosition!.latitude, _ghostPosition!.longitude
-          );
+          double dist = Geolocator.distanceBetween(_currentPosition!.latitude, _currentPosition!.longitude, _ghostPosition!.latitude, _ghostPosition!.longitude);
           
-          // 2. Zeit Abstand (+/- Sekunden)
-          // Wir suchen den Punkt in der Ghost-Tour, der uns am nächsten ist
           double minDistance = double.infinity;
           Map<String, dynamic>? closestGhostPoint;
-
           for (var p in _ghostPoints) {
             double d = Geolocator.distanceBetween(_currentPosition!.latitude, _currentPosition!.longitude, p['lat'], p['lng']);
-            if (d < minDistance) {
-              minDistance = d;
-              closestGhostPoint = p;
-            }
+            if (d < minDistance) { minDistance = d; closestGhostPoint = p; }
           }
-
           if (closestGhostPoint != null) {
             DateTime pTime = DateTime.parse(closestGhostPoint['timestamp']);
-            Duration ghostElapsedAtThisPoint = pTime.difference(ghostStart);
-            _timeDiffSeconds = ghostElapsedAtThisPoint.inMilliseconds / 1000 - elapsed.inMilliseconds / 1000;
+            _timeDiffSeconds = pTime.difference(ghostStart).inMilliseconds / 1000 - elapsed.inMilliseconds / 1000;
           }
 
           if (_targetPosition != null) {
@@ -219,12 +237,8 @@ class _RecordingScreenState extends State<RecordingScreen> {
     }
   }
 
-  String _formatDuration(Duration d) {
-    String twoDigits(int n) => n.toString().padLeft(2, "0");
-    return "${twoDigits(d.inMinutes)}:${twoDigits(d.inSeconds.remainder(60))}";
-  }
-
   void _finishSession(bool reachedGoal) {
+    WakelockPlus.disable();
     _ghostTicker?.cancel();
     _positionStream?.cancel();
     if (mounted) setState(() => _isRecording = false);
@@ -240,17 +254,14 @@ class _RecordingScreenState extends State<RecordingScreen> {
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.grey[900],
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(reachedGoal ? "ZIEL ERREICHT!" : "FAHRT BEENDET", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         content: TextField(controller: nameController, style: const TextStyle(color: Colors.white)),
         actions: [
           TextButton(onPressed: () { Navigator.pop(context); Navigator.pop(context); }, child: const Text("VERWERFEN", style: TextStyle(color: Colors.redAccent))),
           TextButton(onPressed: () async {
             if (_recordedPoints.isNotEmpty) await DatabaseHelper().saveTour(nameController.text, _recordedPoints);
-            if (mounted) {
-              Navigator.pop(context); Navigator.pop(context);
-            }
-          }, child: Text("SPEICHERN", style: TextStyle(color: ghostBlue, fontWeight: FontWeight.bold))),
+            Navigator.pop(context); Navigator.pop(context);
+          }, child: Text("SPEICHERN", style: TextStyle(color: ghostNeonBlue, fontWeight: FontWeight.bold))),
         ],
       ),
     );
@@ -258,10 +269,28 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
   @override
   void dispose() {
+    WakelockPlus.disable();
     _countdownTimer?.cancel();
     _ghostTicker?.cancel();
     _positionStream?.cancel();
     super.dispose();
+  }
+
+  // --- HILFSFUNKTIONEN ---
+
+  String _formatDuration(Duration d) {
+    String twoDigits(int n) => n.toString().padLeft(2, "0");
+    return "${twoDigits(d.inMinutes)}:${twoDigits(d.inSeconds.remainder(60))}";
+  }
+
+  Widget _buildStatColumn(String label, String value, {Color color = Colors.white}) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white54, fontSize: 10, fontWeight: FontWeight.bold)),
+        Text(value, style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+      ],
+    );
   }
 
   @override
@@ -275,20 +304,62 @@ class _RecordingScreenState extends State<RecordingScreen> {
         children: [
           FlutterMap(
             mapController: _mapController,
-            options: MapOptions(initialCenter: _currentPosition ?? const LatLng(50.11, 8.68), initialZoom: 18),
+            options: MapOptions(
+              initialCenter: _currentPosition ?? const LatLng(50.11, 8.68), 
+              initialZoom: 18,
+              onPositionChanged: (pos, hasGesture) {
+                if (hasGesture && _autoZoomActive) {
+                  setState(() => _autoZoomActive = false); 
+                }
+              },
+            ),
             children: [
               TileLayer(urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', userAgentPackageName: 'com.ghostride.app'),
-              if (hasGhost && _ghostPolyline.isNotEmpty) PolylineLayer(polylines: [Polyline(points: _ghostPolyline, strokeWidth: 3, color: Colors.yellow.withOpacity(0.3))]),
-              if (_polylinePoints.length >= 2) PolylineLayer(polylines: [Polyline(points: _polylinePoints, strokeWidth: 5, color: Colors.greenAccent)]),
+              
+              if (hasGhost && _ghostPolyline.isNotEmpty) ...[
+                PolylineLayer(polylines: [
+                  Polyline(points: _ghostPolyline, strokeWidth: 10, color: Colors.black.withOpacity(0.5)),
+                  Polyline(points: _ghostPolyline, strokeWidth: 6, color: ghostLineYellow),
+                ]),
+              ],
+              
+              if (_polylinePoints.length >= 2) 
+                PolylineLayer(polylines: [
+                  Polyline(points: _polylinePoints, strokeWidth: 7, color: userNeonGreen)
+                ]),
+
               MarkerLayer(markers: [
-                if (_currentPosition != null) Marker(point: _currentPosition!, child: const Icon(Icons.navigation, color: Colors.white, size: 30)),
-                if (hasGhost && _targetPosition != null) Marker(point: _targetPosition!, child: Icon(Icons.flag_circle, color: _goalLocked ? Colors.white10 : Colors.redAccent, size: 45)),
-                if (hasGhost && _ghostPosition != null) Marker(point: _ghostPosition!, child: Icon(Icons.bolt, color: ghostBlue, size: 40)),
+                if (_currentPosition != null) 
+                  Marker(
+                    point: _currentPosition!, 
+                    width: 45, height: 45,
+                    child: Transform.rotate(
+                      angle: (_currentHeading * (3.14159 / 180)),
+                      child: Container(
+                        decoration: BoxDecoration(color: userNeonGreen, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3)),
+                        child: const Icon(Icons.navigation, color: Colors.black87, size: 30),
+                      ),
+                    ),
+                  ),
+                if (hasGhost && _ghostPosition != null) 
+                  Marker(
+                    point: _ghostPosition!, 
+                    width: 45, height: 45,
+                    child: Container(
+                      decoration: BoxDecoration(color: ghostNeonBlue, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3)),
+                      child: const Center(child: Text("G", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 20))),
+                    ),
+                  ),
+                if (hasGhost && _targetPosition != null) 
+                  Marker(
+                    point: _targetPosition!, 
+                    width: 55, height: 55,
+                    child: Icon(Icons.flag_circle, color: _goalLocked ? Colors.white24 : Colors.redAccent, size: 55),
+                  ),
               ]),
             ],
           ),
 
-          // DATEN PANEL (Oben fixiert, überdeckt NICHT die ganze Karte)
           if (_isRecording)
             SafeArea(
               child: Align(
@@ -317,10 +388,24 @@ class _RecordingScreenState extends State<RecordingScreen> {
               ),
             ),
 
+          if (_isRecording)
+            Positioned(
+              right: 20,
+              top: MediaQuery.of(context).size.height * 0.4,
+              child: FloatingActionButton.small(
+                backgroundColor: _autoZoomActive ? ghostNeonBlue : Colors.grey[800],
+                onPressed: () {
+                  setState(() => _autoZoomActive = !_autoZoomActive);
+                  if (_autoZoomActive) _fitAllPoints();
+                },
+                child: Icon(_autoZoomActive ? Icons.fullscreen_exit : Icons.fullscreen, color: Colors.white),
+              ),
+            ),
+
           if (_isCountingDown)
             Container(
               color: Colors.black.withOpacity(0.85),
-              child: Center(child: Text("$_countdownSeconds", style: TextStyle(color: ghostBlue, fontSize: 180, fontWeight: FontWeight.bold))),
+              child: Center(child: Text("$_countdownSeconds", style: TextStyle(color: ghostNeonBlue, fontSize: 180, fontWeight: FontWeight.bold))),
             ),
 
           if (_isRecording)
@@ -338,16 +423,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
             )),
         ],
       ),
-    );
-  }
-
-  Widget _buildStatColumn(String label, String value, {Color color = Colors.white}) {
-    return Column(
-      mainAxisSize: MainAxisSize.min, // WICHTIG: Begrenzt die Höhe
-      children: [
-        Text(label, style: const TextStyle(color: Colors.white54, fontSize: 10, fontWeight: FontWeight.bold)),
-        Text(value, style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-      ],
     );
   }
 }
