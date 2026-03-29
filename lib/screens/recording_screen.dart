@@ -1,16 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:ghost_ride/database_helper.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import '../utils/ui_helper.dart';
-import '../services/sensor_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../database_helper.dart';
 
 class RecordingScreen extends StatefulWidget {
-  // Neu: Die ID der Tour, gegen die man fährt (null = normales Training)
   final int? ghostTourId;
-
   const RecordingScreen({super.key, this.ghostTourId});
 
   @override
@@ -18,141 +15,206 @@ class RecordingScreen extends StatefulWidget {
 }
 
 class _RecordingScreenState extends State<RecordingScreen> {
-  int _counter = 5;
-  Timer? _timer;
-  bool _isRecording = false;
-  bool _isSaving = false;
-  bool _hasInitialPosition = false;
-
-  StreamSubscription<Position>? _positionStream;
-  final List<Map<String, dynamic>> _trackPoints = [];
-  final List<LatLng> _polylinePoints = [];
-  DateTime? _lastSavedTime;
-
-  // Geist-Logik Variablen
-  List<Map<String, dynamic>> _ghostPoints = [];
-  LatLng? _currentGhostPosition;
-  int _ghostIndex = 0;
-
   final MapController _mapController = MapController();
+  
+  List<Map<String, dynamic>> _recordedPoints = [];
+  List<LatLng> _polylinePoints = [];
+  List<Map<String, dynamic>> _ghostPoints = [];
+  List<LatLng> _ghostPolyline = [];
+  
+  LatLng? _currentPosition;
+  LatLng? _ghostPosition;
+  LatLng? _targetPosition;
+
+  bool _isRecording = false;
+  bool _isCountingDown = true;
+  int _countdownSeconds = 5;
+  double _targetRadius = 25.0;
+  
+  bool _goalLocked = true; 
+  DateTime? _startTime;
+  Timer? _countdownTimer;
+  Timer? _ghostTicker; // Separater Timer für flüssige Geist-Bewegung
+  StreamSubscription<Position>? _positionStream;
+  final Color ghostBlue = const Color(0xFF00B4FF);
 
   @override
   void initState() {
     super.initState();
+    _prepareRace();
+  }
+
+  Future<void> _prepareRace() async {
+    final prefs = await SharedPreferences.getInstance();
+    _countdownSeconds = (prefs.getDouble('countdown') ?? 5.0).toInt();
+    _targetRadius = prefs.getDouble('target_radius') ?? 25.0;
+
     if (widget.ghostTourId != null) {
-      _loadGhostData();
+      final points = await DatabaseHelper().getTourPoints(widget.ghostTourId!);
+      if (points.isNotEmpty) {
+        _ghostPoints = points;
+        _ghostPolyline = points.map((p) => LatLng(p['lat'], p['lng'])).toList();
+        _targetPosition = _ghostPolyline.last;
+        _ghostPosition = _ghostPolyline.first;
+      }
     }
+    
+    _updateLocation();
     _startCountdown();
   }
 
-  // Geist-Daten aus der DB laden
-  Future<void> _loadGhostData() async {
-    final points = await DatabaseHelper().getTourPoints(widget.ghostTourId!);
-    setState(() {
-      _ghostPoints = points;
-    });
-  }
-
   void _startCountdown() {
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
-        setState(() {
-          if (_counter > 1) {
-            _counter--;
-          } else {
-            _timer?.cancel();
-            _isRecording = true;
-            _initGPS();
-          }
-        });
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_countdownSeconds > 1) {
+        setState(() => _countdownSeconds--);
+      } else {
+        _countdownTimer?.cancel();
+        _startTracking();
       }
     });
   }
 
-  Future<void> _initGPS() async {
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return;
+  Future<void> _updateLocation() async {
+    try {
+      Position pos = await Geolocator.getCurrentPosition();
+      if (mounted) {
+        setState(() => _currentPosition = LatLng(pos.latitude, pos.longitude));
+        _mapController.move(_currentPosition!, 18);
+      }
+    } catch (e) {
+      debugPrint("Warte auf GPS...");
     }
+  }
+
+  void _startTracking() {
+    setState(() {
+      _isCountingDown = false;
+      _isRecording = true;
+      _startTime = DateTime.now();
+      _goalLocked = true;
+      _polylinePoints.clear();
+      _recordedPoints.clear();
+    });
+
+    // GEIST-TICKER: Aktualisiert die Geist-Position 10x pro Sekunde, 
+    // völlig unabhängig von deinem GPS-Signal!
+    _ghostTicker = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (_isRecording && _startTime != null) {
+        _updateGhostMovement(DateTime.now().difference(_startTime!));
+      }
+    });
 
     _positionStream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 0,
-      ),
-    ).listen(_processPosition);
-  }
-
-  void _processPosition(Position pos) {
-    final now = DateTime.now();
-    LatLng currentLatLng = LatLng(pos.latitude, pos.longitude);
-
-    if (!_hasInitialPosition) {
-      setState(() {
-        _hasInitialPosition = true;
+      locationSettings: AndroidSettings(accuracy: LocationAccuracy.high, distanceFilter: 1)
+    ).listen((Position position) {
+      LatLng userPos = LatLng(position.latitude, position.longitude);
+      final now = DateTime.now();
+      final elapsed = now.difference(_startTime!);
+      
+      _recordedPoints.add({
+        'lat': position.latitude,
+        'lng': position.longitude,
+        'alt': position.altitude,
+        'timestamp': now.toIso8601String(),
       });
-    }
 
-    _mapController.move(currentLatLng, 17.0);
+      // Sperre aufheben (2 Min oder 100m weg)
+      if (_goalLocked) {
+        double distFromStart = Geolocator.distanceBetween(
+          _recordedPoints.first['lat'], _recordedPoints.first['lng'],
+          userPos.latitude, userPos.longitude
+        );
+        if (elapsed.inMinutes >= 2 || distFromStart > 100) {
+          setState(() => _goalLocked = false);
+        }
+      }
 
-    // Eigene Position speichern (alle 2s)
-    if (_lastSavedTime == null || now.difference(_lastSavedTime!).inSeconds >= 2) {
-      _lastSavedTime = now;
       setState(() {
-        _polylinePoints.add(currentLatLng);
-        _trackPoints.add({
-          'lat': pos.latitude,
-          'lng': pos.longitude,
-          'alt': SensorService().isBarometerAvailable ? pos.altitude : null,
-          'timestamp': now.toIso8601String(),
-        });
+        _currentPosition = userPos;
+        _polylinePoints.add(userPos);
+        _mapController.move(userPos, 18);
 
-        // Geist bewegen: Wir rücken den Geist einfach Punkt für Punkt vor
-        if (_ghostPoints.isNotEmpty && _ghostIndex < _ghostPoints.length) {
-          _currentGhostPosition = LatLng(
-            _ghostPoints[_ghostIndex]['lat'],
-            _ghostPoints[_ghostIndex]['lng'],
+        // Ziel-Check
+        if (_targetPosition != null && !_goalLocked) {
+          double distToTarget = Geolocator.distanceBetween(
+            userPos.latitude, userPos.longitude,
+            _targetPosition!.latitude, _targetPosition!.longitude
           );
-          _ghostIndex++;
+          if (distToTarget <= _targetRadius) _finishSession(true);
         }
       });
-    }
+    });
   }
 
-  Future<void> _stopAndSave() async {
-    _positionStream?.cancel();
-    if (_trackPoints.isEmpty) {
-      Navigator.pop(context);
-      return;
+  void _updateGhostMovement(Duration elapsed) {
+    if (_ghostPoints.isEmpty) return;
+    
+    DateTime ghostStart = DateTime.parse(_ghostPoints.first['timestamp']);
+    
+    // Wir suchen den Punkt in der Liste, der zeitlich am nächsten an 'elapsed' ist
+    for (var i = 0; i < _ghostPoints.length; i++) {
+      DateTime pTime = DateTime.parse(_ghostPoints[i]['timestamp']);
+      if (pTime.difference(ghostStart) >= elapsed) {
+        setState(() {
+          _ghostPosition = LatLng(_ghostPoints[i]['lat'], _ghostPoints[i]['lng']);
+        });
+        return; 
+      }
     }
+    
+    // Wenn der Geist am Ende der Liste angekommen ist
+    setState(() {
+      _ghostPosition = LatLng(_ghostPoints.last['lat'], _ghostPoints.last['lng']);
+    });
+  }
 
-    String tourName = "Tour ${DateTime.now().day}.${DateTime.now().month}. ${DateTime.now().hour}:${DateTime.now().minute}";
+  void _finishSession(bool reachedGoal) {
+    _ghostTicker?.cancel();
+    _positionStream?.cancel();
+    setState(() => _isRecording = false);
+    _showSaveDialog(reachedGoal);
+  }
+
+  void _showSaveDialog(bool reachedGoal) {
+    TextEditingController nameController = TextEditingController(
+      text: "Tour ${DateTime.now().day}.${DateTime.now().month}. ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}"
+    );
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text("Fahrt speichern"),
+        backgroundColor: Colors.grey[900],
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(reachedGoal ? "ZIEL ERREICHT!" : "FAHRT BEENDET", 
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         content: TextField(
-          decoration: const InputDecoration(hintText: "Name der Strecke"),
-          onChanged: (value) => tourName = value,
+          controller: nameController,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            labelText: "Name zum Speichern",
+            labelStyle: TextStyle(color: ghostBlue),
+            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: ghostBlue)),
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Verwerfen", style: TextStyle(color: Colors.red)),
+            onPressed: () {
+              Navigator.pop(context); 
+              Navigator.pop(context); 
+            }, 
+            child: const Text("VERWERFEN", style: TextStyle(color: Colors.redAccent))
           ),
-          ElevatedButton(
+          TextButton(
             onPressed: () async {
-              setState(() => _isSaving = true);
-              await DatabaseHelper().saveTour(tourName, _trackPoints);
-              if (mounted) {
-                Navigator.pop(context);
-                Navigator.pop(context);
+              if (_recordedPoints.isNotEmpty) {
+                await DatabaseHelper().saveTour(nameController.text, _recordedPoints);
               }
+              Navigator.pop(context);
+              Navigator.pop(context);
             },
-            child: const Text("Speichern"),
+            child: Text("SPEICHERN", style: TextStyle(color: ghostBlue, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -161,9 +223,9 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _countdownTimer?.cancel();
+    _ghostTicker?.cancel();
     _positionStream?.cancel();
-    _mapController.dispose();
     super.dispose();
   }
 
@@ -171,162 +233,83 @@ class _RecordingScreenState extends State<RecordingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: _isSaving
-          ? const Center(child: CircularProgressIndicator(color: Colors.greenAccent))
-          : _buildBodyContent(),
-    );
-  }
-
-  Widget _buildBodyContent() {
-    if (!_isRecording) return _buildCountdownUI();
-    if (!_hasInitialPosition) return _buildWaitingForGPSUI();
-    return _buildMapUI();
-  }
-
-  Widget _buildWaitingForGPSUI() {
-    return Container(
-      color: Colors.green.shade900,
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircularProgressIndicator(color: Colors.white),
-            SizedBox(height: UIHelper.verticalSpace(context, 0.05)),
-            const Text(
-              "SUCHE SATELLITEN...",
-              style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _currentPosition ?? const LatLng(50.11, 8.68),
+              initialZoom: 18,
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCountdownUI() {
-    return Container(
-      color: Colors.green.shade900,
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              "BEREIT MACHEN...",
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: UIHelper.dynamicFontSize(context, 0.07),
-                fontWeight: FontWeight.bold,
+            children: [
+              TileLayer(
+                urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                userAgentPackageName: 'com.ghostride.app',
               ),
-            ),
-            SizedBox(height: UIHelper.verticalSpace(context, 0.05)),
-            Text(
-              "$_counter",
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: UIHelper.dynamicFontSize(context, 0.4),
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            SizedBox(height: UIHelper.verticalSpace(context, 0.08)),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("ABBRECHEN"),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMapUI() {
-    return Stack(
-      children: [
-        FlutterMap(
-          mapController: _mapController,
-          options: const MapOptions(
-            initialCenter: LatLng(50.11, 8.68),
-            initialZoom: 17.0,
+              if (_ghostPolyline.isNotEmpty)
+                PolylineLayer(polylines: [
+                  Polyline(points: _ghostPolyline, strokeWidth: 4, color: Colors.yellow.withOpacity(0.4)),
+                ]),
+              if (_polylinePoints.length >= 2)
+                PolylineLayer(polylines: [
+                  Polyline(points: _polylinePoints, strokeWidth: 6, color: Colors.greenAccent),
+                ]),
+              MarkerLayer(markers: [
+                if (_currentPosition != null)
+                  Marker(point: _currentPosition!, child: const Icon(Icons.navigation, color: Colors.white, size: 30)),
+                if (_targetPosition != null)
+                  Marker(point: _targetPosition!, 
+                    child: Icon(Icons.flag_circle, 
+                      color: _goalLocked ? Colors.white12 : Colors.redAccent, 
+                      size: 45
+                    )
+                  ),
+                if (_ghostPosition != null)
+                  Marker(point: _ghostPosition!, child: Icon(Icons.bolt, color: ghostBlue, size: 40)),
+              ]),
+            ],
           ),
-          children: [
-            TileLayer(
-              urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-              userAgentPackageName: 'com.alexwerner.ghost_ride',
-            ),
-            if (_polylinePoints.length > 1)
-              PolylineLayer(
-                polylines: [
-                  Polyline(
-                    points: _polylinePoints,
-                    color: Colors.greenAccent,
-                    strokeWidth: 6.0,
-                  ),
-                ],
-              ),
-            MarkerLayer(
-              markers: [
-                // Eigener Marker (Blau)
-                if (_polylinePoints.isNotEmpty)
-                  Marker(
-                    point: _polylinePoints.last,
-                    width: 25,
-                    height: 25,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.blueAccent,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 3),
-                      ),
-                    ),
-                  ),
-                // GHOST Marker (Grau/Weiß)
-                if (_currentGhostPosition != null)
-                  Marker(
-                    point: _currentGhostPosition!,
-                    width: 25,
-                    height: 25,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.7),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.black, width: 2),
-                      ),
-                      child: const Icon(Icons.directions_bike, size: 15, color: Colors.black),
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ),
-        Positioned(
-          top: 50,
-          left: 20,
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(15)),
-            child: Text("Punkte: ${_trackPoints.length}", 
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
-        ),
-        Positioned(
-          bottom: UIHelper.verticalSpace(context, 0.05),
-          left: 0,
-          right: 0,
-          child: Center(
-            child: SizedBox(
-              width: UIHelper.deviceWidth(context) * 0.7,
-              height: UIHelper.deviceHeight(context) * 0.08,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red.shade900,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+
+          if (_isRecording && _goalLocked)
+            Positioned(
+              top: 60,
+              left: 0, right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(30)),
+                  child: const Text("ZIEL GESPERRT (RUNDKURS)", style: TextStyle(color: Colors.orangeAccent, fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
-                onPressed: _stopAndSave,
-                child: const Text("STOPP", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
               ),
             ),
-          ),
-        ),
-      ],
+
+          if (_isCountingDown)
+            Container(
+              color: Colors.black.withOpacity(0.7),
+              child: Center(
+                child: Text("$_countdownSeconds", style: TextStyle(color: ghostBlue, fontSize: 160, fontWeight: FontWeight.bold)),
+              ),
+            ),
+
+          if (_isRecording)
+            Positioned(
+              bottom: 40,
+              left: 0, right: 0,
+              child: Center(
+                child: SizedBox(
+                  width: 100, height: 100,
+                  child: FloatingActionButton(
+                    heroTag: "btn_stop",
+                    backgroundColor: Colors.redAccent,
+                    shape: const CircleBorder(),
+                    onPressed: () => _finishSession(false),
+                    child: const Text("STOPP", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

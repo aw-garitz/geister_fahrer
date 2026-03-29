@@ -20,10 +20,10 @@ class DatabaseHelper {
     return await openDatabase(
       path,
       version: 1,
-      // Aktiviert Foreign Keys (wichtig für ON DELETE CASCADE)
+      // Aktiviert Foreign Keys für ON DELETE CASCADE
       onConfigure: (db) async => await db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, version) async {
-        // Tabelle für die Touren (Kopfdaten) inklusive Favoriten-Status
+        // Haupttabelle für Touren
         await db.execute('''
           CREATE TABLE tours(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,7 +33,7 @@ class DatabaseHelper {
           )
         ''');
         
-        // Tabelle für die einzelnen GPS-Punkte
+        // Tabelle für GPS-Punkte
         await db.execute('''
           CREATE TABLE track_points(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,51 +49,50 @@ class DatabaseHelper {
     );
   }
 
-  // Methode zum Speichern einer kompletten Fahrt
+  // --- SPEICHERN ---
+
   Future<void> saveTour(String name, List<Map<String, dynamic>> points) async {
     final db = await database;
-    
     await db.transaction((txn) async {
-      // 1. Tour erstellen
       int tourId = await txn.insert('tours', {
         'name': name,
         'date': DateTime.now().toIso8601String(),
-        'is_favorite': 0, // Standardmäßig kein Favorit
+        'is_favorite': 0,
       });
 
-      // 2. Alle Punkte dieser Tour zuordnen und speichern
       for (var point in points) {
         await txn.insert('track_points', {
           'tour_id': tourId,
           'lat': point['lat'],
           'lng': point['lng'],
-          'alt': point['alt'],
+          'alt': point['alt'] ?? 0.0,
           'timestamp': point['timestamp'],
         });
       }
     });
   }
 
-  // Alle Touren auslesen (für die Liste)
+  // --- LESEN ---
+
   Future<List<Map<String, dynamic>>> getAllTours() async {
     final db = await database;
-    // Wir holen einfach alle – die Sortierung machen wir im Screen (wegen der Favoriten)
+    // Wir holen alle Daten unsortiert, die Sortierung (Favs oben) 
+    // erledigt der GhostSelectionScreen dynamisch.
     return await db.query('tours');
   }
 
-  // Eine Tour löschen (inkl. aller zugehörigen Punkte dank ON DELETE CASCADE)
-  Future<void> deleteTour(int id) async {
-    final db = await database;
-    await db.delete('tours', where: 'id = ?', whereArgs: [id]);
-  }
-
-  // Alle Punkte einer spezifischen Tour laden (für das Rennen gegen den Geist)
   Future<List<Map<String, dynamic>>> getTourPoints(int tourId) async {
     final db = await database;
-    return await db.query('track_points', where: 'tour_id = ?', whereArgs: [tourId], orderBy: 'id ASC');
+    return await db.query('track_points', 
+      where: 'tour_id = ?', 
+      whereArgs: [tourId], 
+      orderBy: 'id ASC'
+    );
   }
 
-  // Favoriten-Status aktualisieren
+  // --- UPDATES (Wichtig für deine Fehler-Fixes) ---
+
+  // Favoriten-Status umschalten (0 oder 1)
   Future<int> updateFavorite(int id, int status) async {
     final db = await database;
     return await db.update(
@@ -102,5 +101,24 @@ class DatabaseHelper {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  // Tour umbenennen
+  Future<int> renameTour(int id, String newName) async {
+    final db = await database;
+    return await db.update(
+      'tours',
+      {'name': newName},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // --- LÖSCHEN ---
+
+  Future<void> deleteTour(int id) async {
+    final db = await database;
+    // Dank ON DELETE CASCADE in onCreate werden track_points automatisch mitgelöscht
+    await db.delete('tours', where: 'id = ?', whereArgs: [id]);
   }
 }

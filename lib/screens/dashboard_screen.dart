@@ -1,188 +1,158 @@
 import 'package:flutter/material.dart';
+import 'package:ghost_ride/screens/settings_screen.dart';
 import '../services/sensor_service.dart';
 import 'recording_screen.dart';
 import 'ghost_selection_screen.dart';
+ // Den müssen wir noch erstellen
 
 class MainDashboard extends StatelessWidget {
   const MainDashboard({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // Wir nutzen das Electric Blue aus dem Logo als Hauptakzent
-    const Color ghostBlue = Color(0xFF00B4FF); 
+    const Color ghostBlue = Color(0xFF00B4FF);
 
     return Scaffold(
-      backgroundColor: Colors.black, // Maximaler Kontrast für das OLED
-      body: Stack(
-        children: [
-          // Subtiler Hintergrund-Gradient für Tiefe
-          Positioned(
-            top: -100,
-            right: -100,
-            child: Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: ghostBlue.withOpacity(0.05),
-              ),
-            ),
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 30),
+              // Header Bereich
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const SizedBox(height: 40),
-                  // Header mit Barometer-Status
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "GEISTER",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 42,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 4,
-                              height: 0.9,
-                            ),
-                          ),
-                          Text(
-                            "FAHRER",
-                            style: TextStyle(
-                              color: ghostBlue,
-                              fontSize: 28,
-                              fontWeight: FontWeight.w300,
-                              letterSpacing: 10,
-                            ),
-                          ),
-                        ],
-                      ),
-                      // Barometer-Icon (funktional & schick)
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(
-                          SensorService().isBarometerAvailable 
-                            ? Icons.height 
-                            : Icons.height_outlined,
-                          color: SensorService().isBarometerAvailable ? Colors.cyanAccent : Colors.grey,
-                          size: 28,
-                        ),
-                      ),
+                      Text("GEISTER", style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: 2)),
+                      Text("FAHRER", style: TextStyle(color: ghostBlue, fontSize: 24, fontWeight: FontWeight.w300, letterSpacing: 8)),
                     ],
                   ),
-                  const Spacer(),
-                  // Die Buttons im neuen Vektor-Style
-                  _DashboardButton(
-                    title: 'FREIE FAHRT',
-                    subtitle: 'Neue Strecke erkunden',
-                    icon: Icons.add_location_alt_outlined,
-                    color: Colors.white,
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const RecordingScreen()),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  _DashboardButton(
-                    title: 'GEGEN GEIST',
-                    subtitle: 'Schlag deine Bestzeit',
-                    icon: Icons.directions_bike,
-                    color: ghostBlue,
-                    isGhostMode: true,
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const GhostSelectionScreen()),
-                    ),
-                  ),
-                  const SizedBox(height: 60),
+                  _buildStatusIcon(),
                 ],
               ),
-            ),
+              const Spacer(flex: 2),
+
+              // 1. DIE MASSIVEN ACTION-BUTTONS (Höhe 120 für leichte Bedienung)
+              _buildBigActionButton(
+                context,
+                title: "NEUE FAHRT",
+                icon: Icons.play_arrow_rounded,
+                color: Colors.white,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const RecordingScreen())),
+              ),
+              
+              const SizedBox(height: 25),
+
+              _buildBigActionButton(
+                context,
+                title: "GEGEN GEIST",
+                icon: Icons.bolt_rounded,
+                color: ghostBlue,
+                isGhost: true,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const GhostSelectionScreen())),
+              ),
+
+              const Spacer(flex: 2),
+
+              // 2. & 3. DIE VERWALTUNGS-BUTTONS (Kompakter am unteren Rand)
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildSecondaryButton(
+                      context,
+                      title: "MEINE TOUREN",
+                      icon: Icons.format_list_bulleted_rounded,
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const GhostSelectionScreen())),
+                    ),
+                  ),
+                  const SizedBox(width: 15),
+                  _buildIconButton(
+                    context,
+                    icon: Icons.settings_outlined,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen())),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 30),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
-}
 
-class _DashboardButton extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-  final bool isGhostMode;
-
-  const _DashboardButton({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-    this.isGhostMode = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
+  // Massive Buttons für die Fahrt
+  Widget _buildBigActionButton(BuildContext context, {required String title, required IconData icon, required Color color, required VoidCallback onTap, bool isGhost = false}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(24),
+        height: 120, // Extra hoch für "Fat-Finger"-Bedienung
         decoration: BoxDecoration(
-          color: isGhostMode ? color.withOpacity(0.1) : Colors.white.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: color.withOpacity(0.3),
-            width: 1.5,
-          ),
-          boxShadow: isGhostMode ? [
-            BoxShadow(
-              color: color.withOpacity(0.15),
-              blurRadius: 20,
-              offset: const Offset(0, 10),
-            )
-          ] : [],
+          color: isGhost ? color.withOpacity(0.15) : Colors.white.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: color.withOpacity(0.4), width: 2),
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 40, color: color),
+            Icon(icon, size: 50, color: color),
             const SizedBox(width: 20),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.5,
-                  ),
-                ),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: color.withOpacity(0.6),
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-            const Spacer(),
-            Icon(Icons.arrow_forward_ios, size: 16, color: color.withOpacity(0.3)),
+            Text(title, style: TextStyle(color: color, fontSize: 26, fontWeight: FontWeight.bold, letterSpacing: 2)),
           ],
         ),
+      ),
+    );
+  }
+
+  // Button für die Touren-Liste
+  Widget _buildSecondaryButton(BuildContext context, {required String title, required IconData icon, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        decoration: BoxDecoration(
+          color: Colors.white10,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: Colors.white70, size: 24),
+            const SizedBox(width: 10),
+            Text(title, style: const TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Kleiner quadratischer Einstellungs-Button
+  Widget _buildIconButton(BuildContext context, {required IconData icon, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        width: 60,
+        height: 60,
+        decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(20)),
+        child: Icon(icon, color: Colors.white70),
+      ),
+    );
+  }
+
+  Widget _buildStatusIcon() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), shape: BoxShape.circle),
+      child: Icon(
+        SensorService().isBarometerAvailable ? Icons.height : Icons.height_outlined,
+        color: SensorService().isBarometerAvailable ? Colors.cyanAccent : Colors.grey,
       ),
     );
   }
