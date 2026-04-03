@@ -26,6 +26,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _countdown = prefs.getDouble('countdown') ?? 5.0;
       _interval = prefs.getDouble('interval') ?? 1.0;
+      _radius = prefs.getDouble('target_radius') ?? 25.0;
     });
   }
 

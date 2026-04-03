@@ -30,9 +30,13 @@ class _RecordingScreenState extends State<RecordingScreen> {
   LatLng? _ghostPosition;
   LatLng? _targetPosition;
   double _currentHeading = 0.0; 
-
+  
   double _distanceDiff = 0.0; 
   double _timeDiffSeconds = 0.0;
+  
+  // Für korrekte Distanzberechnung
+  double _totalGhostDistance = 0.0;
+  double _savedInterval = 1.0;
 
   bool _isRecording = false;
   bool _isCountingDown = true;
@@ -93,6 +97,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
     
     final prefs = await SharedPreferences.getInstance();
     final double savedCountdown = prefs.getDouble('countdown') ?? 5.0;
+    final double savedInterval = prefs.getDouble('interval') ?? 1.0;
     
     await _updateLocation();
 
@@ -103,6 +108,15 @@ class _RecordingScreenState extends State<RecordingScreen> {
         _ghostPolyline = points.map((p) => LatLng(p['lat'], p['lng'])).toList();
         _targetPosition = _ghostPolyline.last;
         _ghostPosition = _ghostPolyline.first;
+        
+        // Berechne Gesamtdistanz der Geist-Strecke
+        _totalGhostDistance = 0.0;
+        for (int i = 0; i < _ghostPolyline.length - 1; i++) {
+          _totalGhostDistance += Geolocator.distanceBetween(
+            _ghostPolyline[i].latitude, _ghostPolyline[i].longitude,
+            _ghostPolyline[i+1].latitude, _ghostPolyline[i+1].longitude
+          );
+        }
       }
     }
 
@@ -110,6 +124,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
       setState(() {
         _countdownSeconds = savedCountdown.toInt();
         _targetRadius = prefs.getDouble('target_radius') ?? 25.0;
+        _savedInterval = savedInterval;
         _isCountingDown = true;
       });
       _startCountdown();
@@ -166,7 +181,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
       locationSettings: AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: 1,
-        intervalDuration: const Duration(milliseconds: 500),
+        intervalDuration: Duration(milliseconds: (_savedInterval * 1000).toInt()),
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationText: "Geister Fahrer trackt deine Fahrt...",
           notificationTitle: "Aufzeichnung läuft",
@@ -227,13 +242,32 @@ class _RecordingScreenState extends State<RecordingScreen> {
         }
 
         if (_currentPosition != null) {
-          double dist = Geolocator.distanceBetween(_currentPosition!.latitude, _currentPosition!.longitude, _ghostPosition!.latitude, _ghostPosition!.longitude);
-          _timeDiffSeconds = (DateTime.parse(p1['timestamp']).difference(ghostStart).inMilliseconds - elapsed.inMilliseconds) / 1000;
+          // Direkter Abstand zum Geist (für Anzeige)
+          double directDistance = Geolocator.distanceBetween(
+            _currentPosition!.latitude, _currentPosition!.longitude, 
+            _ghostPosition!.latitude, _ghostPosition!.longitude
+          );
 
           if (_targetPosition != null) {
-            double userToTarget = Geolocator.distanceBetween(_currentPosition!.latitude, _currentPosition!.longitude, _targetPosition!.latitude, _targetPosition!.longitude);
-            double ghostToTarget = Geolocator.distanceBetween(_ghostPosition!.latitude, _ghostPosition!.longitude, _targetPosition!.latitude, _targetPosition!.longitude);
-            _distanceDiff = (userToTarget > ghostToTarget) ? -dist : dist;
+            // Berechne Fortschritt vom Start zum Ziel
+            double userToTarget = Geolocator.distanceBetween(
+              _currentPosition!.latitude, _currentPosition!.longitude, 
+              _targetPosition!.latitude, _targetPosition!.longitude
+            );
+            double ghostToTarget = Geolocator.distanceBetween(
+              _ghostPosition!.latitude, _ghostPosition!.longitude, 
+              _targetPosition!.latitude, _targetPosition!.longitude
+            );
+            
+            // Echter Vorsprung/Rückstand: Positiv = du liegst vorne
+            double userProgress = _totalGhostDistance - userToTarget;
+            double ghostProgress = _totalGhostDistance - ghostToTarget;
+            _distanceDiff = userProgress - ghostProgress;
+            
+            // Zeitdifferenz: Deine Zeit - Geist-Zeit an gleicher Streckenposition
+            // Da wir interpolation verwenden, ist die Geist-Zeit die "ideale" Zeit
+            _timeDiffSeconds = elapsed.inMilliseconds / 1000 - 
+                              DateTime.parse(p1['timestamp']).difference(ghostStart).inMilliseconds / 1000;
             
             // Ziel-Logik
             if (_recordedPoints.length > 10) _goalLocked = false; 
@@ -249,7 +283,25 @@ class _RecordingScreenState extends State<RecordingScreen> {
     _ghostTicker?.cancel();
     _positionStream?.cancel();
     final duration = DateTime.now().difference(_startTime!);
-    _finalResultText = "Dauer: ${_formatDuration(duration)}\nDistanz: ${(_totalDistance / 1000).toStringAsFixed(2)} km";
+    
+    // Vergleiche mit Geist-Zeit wenn vorhanden
+    String comparisonText = "";
+    if (_ghostPoints.isNotEmpty) {
+      DateTime ghostStart = DateTime.parse(_ghostPoints.first['timestamp']);
+      DateTime ghostEnd = DateTime.parse(_ghostPoints.last['timestamp']);
+      Duration ghostDuration = ghostEnd.difference(ghostStart);
+      Duration timeDiff = duration - ghostDuration;
+      
+      if (timeDiff.inSeconds > 0) {
+        comparisonText = "\n⏱️ ${timeDiff.inSeconds}s langsamer als Geist";
+      } else if (timeDiff.inSeconds < 0) {
+        comparisonText = "\n🚀 ${(-timeDiff.inSeconds)}s schneller als Geist!";
+      } else {
+        comparisonText = "\n⚖️ Exakt gleich schnell wie Geist";
+      }
+    }
+    
+    _finalResultText = "Dauer: ${_formatDuration(duration)}\nDistanz: ${(_totalDistance / 1000).toStringAsFixed(2)} km$comparisonText";
     _showSaveDialog(reachedGoal);
   }
 

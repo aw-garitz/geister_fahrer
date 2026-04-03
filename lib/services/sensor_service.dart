@@ -16,9 +16,9 @@ class SensorService {
   Future<void> checkSensors() async {
     try {
       // Wir prüfen kurz, ob ein Barometer-Event ankommt
-      // Ein Timeout von 500ms reicht völlig aus.
+      // Ein Timeout von 2 Sekunden reicht völlig aus.
       final event = await barometerEventStream().first.timeout(
-  const Duration(milliseconds: 500),
+  const Duration(seconds: 2),
 );
       _isBarometerAvailable = (event != null);
     } catch (e) {
