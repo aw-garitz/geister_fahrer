@@ -54,7 +54,7 @@ class MainDashboard extends StatelessWidget {
                 icon: Icons.bolt_rounded,
                 color: ghostBlue,
                 isGhost: true,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const GhostSelectionScreen())),
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const GhostSelectionScreen(startInEditMode: false))),
               ),
 
               const Spacer(flex: 2),
@@ -67,7 +67,7 @@ class MainDashboard extends StatelessWidget {
                       context,
                       title: "MEINE TOUREN",
                       icon: Icons.format_list_bulleted_rounded,
-                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const GhostSelectionScreen())),
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const GhostSelectionScreen(startInEditMode: true))),
                     ),
                   ),
                   const SizedBox(width: 15),

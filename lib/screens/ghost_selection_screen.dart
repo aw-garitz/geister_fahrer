@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import '../database_helper.dart';
 import 'recording_screen.dart';
+import 'tour_detail_screen.dart';
 
 class GhostSelectionScreen extends StatefulWidget {
   final bool startInEditMode; 
+  // startInEditMode = true  -> Tab "VERWALTEN" ist aktiv
+  // startInEditMode = false -> Tab "RENNEN" ist aktiv
   const GhostSelectionScreen({super.key, this.startInEditMode = false});
 
   @override
@@ -15,15 +18,16 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
   List<Map<String, dynamic>> _tours = [];
   bool _isLoading = true;
   final Color ghostBlue = const Color(0xFF00B4FF);
+  final Color userNeonGreen = const Color(0xFF00FF00);
 
   @override
   void initState() {
     super.initState();
-    // Der TabController startet direkt im richtigen Modus
+    // Hier wird entschieden, welcher Tab beim Start offen ist:
     _tabController = TabController(
       length: 2, 
       vsync: this, 
-      initialIndex: widget.startInEditMode ? 1 : 0
+      initialIndex: widget.startInEditMode ? 1 : 0 
     );
     _loadTours();
   }
@@ -44,7 +48,10 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.grey[900],
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: ghostBlue, width: 1),
+        ),
         title: const Text("TOUR UMBENENNEN", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         content: TextField(
           controller: controller,
@@ -100,7 +107,10 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
       barrierDismissible: true,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.grey[900],
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(30),
+          side: BorderSide(color: ghostBlue, width: 2),
+        ),
         contentPadding: const EdgeInsets.all(25),
         title: Text(
           "RENNEN STARTEN GEGEN:\n${tour['name'].toUpperCase()}",
@@ -110,10 +120,12 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 20),
+            Text("${tour['distance'] ?? '--'}  |  ${tour['duration'] ?? '--'}", 
+                style: const TextStyle(color: Colors.white70, fontSize: 16)),
+            const SizedBox(height: 30),
             SizedBox(
               width: double.infinity,
-              height: 100,
+              height: 80,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.greenAccent[400],
@@ -128,7 +140,7 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
                     ),
                   );
                 },
-                child: const Text("START", style: TextStyle(color: Colors.black, fontSize: 32, fontWeight: FontWeight.bold)),
+                child: const Text("START", style: TextStyle(color: Colors.black, fontSize: 28, fontWeight: FontWeight.bold)),
               ),
             ),
             const SizedBox(height: 15),
@@ -142,10 +154,10 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
     );
   }
 
-  // --- LISTEL-ANSICHTEN ---
+  // --- LISTEN ---
 
-  // MODUS 1: RENNEN (Gegen Geist)
   Widget _buildRaceList() {
+    if (_tours.isEmpty) return const Center(child: Text("NOCH KEINE TOUREN", style: TextStyle(color: Colors.white24)));
     return ListView.builder(
       itemCount: _tours.length,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
@@ -176,10 +188,14 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Text(
-                        tour['name'].toUpperCase(),
-                        style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-                        overflow: TextOverflow.ellipsis,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(tour['name'].toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 8),
+                          Text("${tour['distance'] ?? '--'} • ${tour['duration'] ?? '--'}", style: const TextStyle(color: Colors.white38, fontSize: 14)),
+                        ],
                       ),
                     ),
                   ),
@@ -194,34 +210,31 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
     );
   }
 
-  // MODUS 2: VERWALTEN (Meine Touren)
   Widget _buildAdminList() {
+    if (_tours.isEmpty) return const Center(child: Text("LISTE LEER", style: TextStyle(color: Colors.white24)));
     return ListView.builder(
       itemCount: _tours.length,
       padding: const EdgeInsets.symmetric(vertical: 10),
       itemBuilder: (context, index) {
         final tour = _tours[index];
         return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: Colors.white10),
           ),
           child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            title: Text(tour['name'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-            subtitle: Text(tour['date'].toString().substring(0, 10), style: const TextStyle(color: Colors.white38)),
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => TourDetailScreen(tourId: tour['id'])));
+            },
+            title: Text(tour['name'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            subtitle: Text("${tour['date']?.toString().substring(0,10) ?? ''} • ${tour['distance'] ?? ''}", style: const TextStyle(color: Colors.white38)),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                IconButton(
-                  icon: const Icon(Icons.edit, color: Colors.white54),
-                  onPressed: () => _showRenameDialog(tour['id'], tour['name']),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.redAccent),
-                  onPressed: () => _confirmDelete(tour['id']),
-                ),
+                IconButton(icon: const Icon(Icons.edit, color: Colors.white54), onPressed: () => _showRenameDialog(tour['id'], tour['name'])),
+                IconButton(icon: const Icon(Icons.delete, color: Colors.redAccent), onPressed: () => _confirmDelete(tour['id'])),
               ],
             ),
           ),
@@ -235,28 +248,18 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: Text(widget.startInEditMode ? "MEINE TOUREN" : "GEGEN GEIST", 
-            style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+        title: Text(widget.startInEditMode ? "MEINE TOUREN" : "GEGEN GEIST", style: const TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Colors.black,
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: ghostBlue,
-          indicatorWeight: 4,
-          tabs: const [
-            Tab(text: "RENNEN"),
-            Tab(text: "VERWALTEN"),
-          ],
+          tabs: const [ Tab(text: "RENNEN"), Tab(text: "VERWALTEN") ],
         ),
       ),
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator(color: ghostBlue))
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildRaceList(),
-                _buildAdminList(),
-              ],
-            ),
+      body: _isLoading ? Center(child: CircularProgressIndicator(color: ghostBlue)) : TabBarView(
+        controller: _tabController,
+        children: [ _buildRaceList(), _buildAdminList() ],
+      ),
     );
   }
 
