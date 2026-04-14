@@ -295,10 +295,43 @@ class _RecordingScreenState extends State<RecordingScreen> {
     _showSaveDialog(reachedGoal);
   }
 
+  double _calculateGhostDistance() {
+    double distance = 0.0;
+    for (int i = 1; i < _ghostPoints.length; i++) {
+      distance += Geolocator.distanceBetween(
+        _ghostPoints[i - 1]['lat'],
+        _ghostPoints[i - 1]['lng'],
+        _ghostPoints[i]['lat'],
+        _ghostPoints[i]['lng'],
+      );
+    }
+    return distance;
+  }
+
   void _showSaveDialog(bool reachedGoal) {
     TextEditingController nameController = TextEditingController(
       text: "Tour ${DateTime.now().day}.${DateTime.now().month}.",
     );
+
+    // Berechne Vergleiche, falls Geist-Daten vorhanden
+    String timeComparison = "";
+    String distanceComparison = "";
+    if (widget.ghostTourId != null && _startTime != null) {
+      final userElapsed = DateTime.now().difference(_startTime!);
+      final timeDiff = userElapsed - _ghostTotalDuration;
+      final timeDiffStr = timeDiff.isNegative
+          ? "${timeDiff.inSeconds} sek"
+          : "+${timeDiff.inSeconds} sek";
+      timeComparison = "Zeit: $timeDiffStr";
+
+      final ghostDistance = _calculateGhostDistance();
+      final distanceDiff = _totalDistance - ghostDistance;
+      final distanceDiffStr = distanceDiff < 0
+          ? "${distanceDiff.toStringAsFixed(2)} m"
+          : "+${distanceDiff.toStringAsFixed(2)} m";
+      distanceComparison = "Distanz: $distanceDiffStr";
+    }
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -308,13 +341,29 @@ class _RecordingScreenState extends State<RecordingScreen> {
           reachedGoal ? "🏆 ZIEL ERREICHT" : "BEENDET",
           style: const TextStyle(color: Colors.white),
         ),
-        content: TextField(
-          controller: nameController,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            labelText: "Name der Tour",
-            labelStyle: TextStyle(color: Colors.white70),
-          ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (timeComparison.isNotEmpty)
+              Text(
+                timeComparison,
+                style: const TextStyle(color: Colors.white70, fontSize: 16),
+              ),
+            if (distanceComparison.isNotEmpty)
+              Text(
+                distanceComparison,
+                style: const TextStyle(color: Colors.white70, fontSize: 16),
+              ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: nameController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: "Name der Tour",
+                labelStyle: TextStyle(color: Colors.white70),
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
