@@ -17,89 +17,61 @@ class RecordingScreen extends StatefulWidget {
 
 class _RecordingScreenState extends State<RecordingScreen> {
   final MapController _mapController = MapController();
-  String _finalResultText = "";
-  
+
   List<Map<String, dynamic>> _recordedPoints = [];
   List<LatLng> _polylinePoints = [];
   double _totalDistance = 0.0;
-  
+
   List<Map<String, dynamic>> _ghostPoints = [];
   List<LatLng> _ghostPolyline = [];
-  
+  Duration _ghostTotalDuration = Duration.zero;
+
   LatLng? _currentPosition;
   LatLng? _ghostPosition;
   LatLng? _targetPosition;
-  double _currentHeading = 0.0; 
-  
-  double _distanceDiff = 0.0; 
-  double _timeDiffSeconds = 0.0;
-  
-  // Für korrekte Distanzberechnung
-  double _totalGhostDistance = 0.0;
-  double _savedInterval = 1.0;
+  double _currentHeading = 0.0;
 
   bool _isRecording = false;
   bool _isCountingDown = true;
-  bool _autoZoomActive = true; 
-  
-  int _countdownSeconds = 5;
-  double _targetRadius = 25.0;
-  bool _goalLocked = true; 
+  bool _autoZoomActive = true;
+  bool _isLoadingGhostData = false; // Loading State für Geist-Daten
+
+  int _countdownSeconds = 10;
+  final double _targetRadius = 20.0; // Lastenheft Punkt 11a
 
   DateTime? _startTime;
   Timer? _countdownTimer;
-  Timer? _ghostTicker;
+  Timer? _uiTicker;
+  Timer? _recenterTimer;
   StreamSubscription<Position>? _positionStream;
-  
-  final Color ghostNeonBlue = const Color(0xFF00E5FF);
+
+  // Farben laut Lastenheft
   final Color userNeonGreen = const Color(0xFF00FF00);
   final Color ghostLineYellow = const Color(0xFFFFEA00);
+  final Color ghostMarkerColor = Colors.blueAccent;
 
   @override
   void initState() {
     super.initState();
-    WakelockPlus.enable(); 
-    _prepareRace();
+    WakelockPlus.enable();
+    _prepareRecording();
   }
 
-  LatLng _interpolate(LatLng start, LatLng end, double fraction) {
-    double lat = start.latitude + (end.latitude - start.latitude) * fraction;
-    double lng = start.longitude + (end.longitude - start.longitude) * fraction;
-    return LatLng(lat, lng);
-  }
-
-  void _fitDuelView() {
-    if (!_autoZoomActive) return;
-    List<LatLng> pointsToShow = [];
-    
-    // Fokus nur auf User und Geist für maximale Details
-    if (_currentPosition != null) pointsToShow.add(_currentPosition!);
-    if (_ghostPosition != null) pointsToShow.add(_ghostPosition!);
-
-    if (pointsToShow.length >= 2) {
-      final bounds = LatLngBounds.fromPoints(pointsToShow);
-      _mapController.fitCamera(
-        CameraFit.bounds(
-          bounds: bounds,
-          padding: const EdgeInsets.only(top: 140.0, left: 60.0, right: 60.0, bottom: 120.0),
-        ),
-      );
-    } else if (pointsToShow.length == 1 && _currentPosition != null) {
-      _mapController.move(_currentPosition!, 18);
-    }
-  }
-
-  Future<void> _prepareRace() async {
+  Future<void> _prepareRecording() async {
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
-    
+
     final prefs = await SharedPreferences.getInstance();
-    final double savedCountdown = prefs.getDouble('countdown') ?? 5.0;
-    final double savedInterval = prefs.getDouble('interval') ?? 1.0;
-    
-    await _updateLocation();
+    int loadedCountdown = (prefs.getDouble('countdown') ?? 5.0).toInt();
+    if (mounted) {
+      setState(() {
+        _countdownSeconds = loadedCountdown;
+      });
+    } else {
+      _countdownSeconds = loadedCountdown;
+    }
 
     if (widget.ghostTourId != null) {
       final points = await DatabaseHelper().getTourPoints(widget.ghostTourId!);
@@ -108,27 +80,27 @@ class _RecordingScreenState extends State<RecordingScreen> {
         _ghostPolyline = points.map((p) => LatLng(p['lat'], p['lng'])).toList();
         _targetPosition = _ghostPolyline.last;
         _ghostPosition = _ghostPolyline.first;
-        
-        // Berechne Gesamtdistanz der Geist-Strecke
-        _totalGhostDistance = 0.0;
-        for (int i = 0; i < _ghostPolyline.length - 1; i++) {
-          _totalGhostDistance += Geolocator.distanceBetween(
-            _ghostPolyline[i].latitude, _ghostPolyline[i].longitude,
-            _ghostPolyline[i+1].latitude, _ghostPolyline[i+1].longitude
-          );
-        }
+
+        DateTime gStart = DateTime.parse(_ghostPoints.first['timestamp']);
+        DateTime gEnd = DateTime.parse(_ghostPoints.last['timestamp']);
+        _ghostTotalDuration = gEnd.difference(gStart);
       }
     }
 
-    if (mounted) {
-      setState(() {
-        _countdownSeconds = savedCountdown.toInt();
-        _targetRadius = prefs.getDouble('target_radius') ?? 25.0;
-        _savedInterval = savedInterval;
-        _isCountingDown = true;
-      });
-      _startCountdown();
-    }
+    try {
+      Position pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 3),
+      );
+      if (mounted) {
+        setState(() {
+          _currentPosition = LatLng(pos.latitude, pos.longitude);
+        });
+        _mapController.move(_currentPosition!, 16);
+      }
+    } catch (_) {}
+
+    _startCountdown();
   }
 
   void _startCountdown() {
@@ -142,190 +114,230 @@ class _RecordingScreenState extends State<RecordingScreen> {
     });
   }
 
-  Future<void> _updateLocation() async {
-    try {
-      Position pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-      if (mounted) {
-        setState(() {
-          _currentPosition = LatLng(pos.latitude, pos.longitude);
-          _currentHeading = pos.heading;
-        });
-        _mapController.move(_currentPosition!, 18);
-      }
-    } catch (e) {
-      debugPrint("GPS Error: $e");
-    }
-  }
-
   void _startTracking() {
     if (mounted) {
       setState(() {
         _isRecording = true;
         _isCountingDown = false;
         _startTime = DateTime.now();
-        _goalLocked = true;
         _recordedPoints.clear();
         _polylinePoints.clear();
       });
     }
 
-    _ghostTicker = Timer.periodic(const Duration(milliseconds: 50), (timer) {
-      if (_isRecording && _startTime != null) {
-        _updateStats();
-        _fitDuelView();
+    _uiTicker = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (_isRecording) {
+        _updateGhostLogic();
+        _updateCamera();
       }
     });
 
-    // Foreground Service Konfiguration für Jackentaschen-Modus
     _positionStream = Geolocator.getPositionStream(
       locationSettings: AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 1,
-        intervalDuration: Duration(milliseconds: (_savedInterval * 1000).toInt()),
-        foregroundNotificationConfig: const ForegroundNotificationConfig(
-          notificationText: "Geister Fahrer trackt deine Fahrt...",
-          notificationTitle: "Aufzeichnung läuft",
-          enableWakeLock: true,
-        ),
-      )
-    ).listen((Position position) {
-      LatLng userPos = LatLng(position.latitude, position.longitude);
-      final now = DateTime.now();
-      
-      if (mounted) {
-        setState(() {
-          if (_polylinePoints.isNotEmpty) {
-            _totalDistance += Geolocator.distanceBetween(
-              _polylinePoints.last.latitude, _polylinePoints.last.longitude,
-              userPos.latitude, userPos.longitude
-            );
-          }
-          _currentPosition = userPos;
-          _polylinePoints.add(userPos);
-          _currentHeading = position.heading;
-          _recordedPoints.add({
-            'lat': position.latitude, 'lng': position.longitude,
-            'alt': position.altitude, 'timestamp': now.toIso8601String(),
-          });
-        });
+        distanceFilter: 0,
+        intervalDuration: Duration(milliseconds: 500),
+      ),
+    ).listen((Position position) => _addPoint(position));
+  }
+
+  void _addPoint(Position pos) {
+    if (!mounted) return;
+    LatLng newLatLng = LatLng(pos.latitude, pos.longitude);
+
+    setState(() {
+      if (_polylinePoints.isNotEmpty) {
+        _totalDistance += Geolocator.distanceBetween(
+          _polylinePoints.last.latitude,
+          _polylinePoints.last.longitude,
+          newLatLng.latitude,
+          newLatLng.longitude,
+        );
+      }
+      _currentPosition = newLatLng;
+      _currentHeading = pos.heading;
+      _polylinePoints.add(newLatLng);
+      _recordedPoints.add({
+        'lat': pos.latitude,
+        'lng': pos.longitude,
+        'alt': pos.altitude,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+
+      if (widget.ghostTourId != null && _targetPosition != null) {
+        double distToTarget = Geolocator.distanceBetween(
+          newLatLng.latitude,
+          newLatLng.longitude,
+          _targetPosition!.latitude,
+          _targetPosition!.longitude,
+        );
+        if (_polylinePoints.length > 5 && distToTarget < 20.0) {
+          _finishSession(true);
+        }
       }
     });
   }
 
-  void _updateStats() {
-    if (_startTime == null || _ghostPoints.isEmpty) return;
-    final elapsed = DateTime.now().difference(_startTime!);
-    DateTime ghostStart = DateTime.parse(_ghostPoints.first['timestamp']);
-    
-    int currentIndex = 0;
-    for (int i = 0; i < _ghostPoints.length - 1; i++) {
-      if (DateTime.parse(_ghostPoints[i+1]['timestamp']).difference(ghostStart) >= elapsed) {
-        currentIndex = i;
-        break;
-      }
+  void _updateGhostLogic() {
+    if (widget.ghostTourId == null ||
+        _startTime == null ||
+        _ghostPoints.isEmpty) {
+      // Wenn keine Geist-Daten da, nicht versuchen Logik auszuführen
+      return;
     }
 
-    if (mounted) {
-      setState(() {
-        var p1 = _ghostPoints[currentIndex];
-        var p2 = currentIndex + 1 < _ghostPoints.length ? _ghostPoints[currentIndex + 1] : p1;
-        
-        DateTime t1 = DateTime.parse(p1['timestamp']);
-        DateTime t2 = DateTime.parse(p2['timestamp']);
-        int segmentDuration = t2.difference(t1).inMilliseconds;
+    final elapsed = DateTime.now().difference(_startTime!);
+    DateTime ghostStart = DateTime.parse(_ghostPoints.first['timestamp']);
 
-        if (segmentDuration > 0) {
-          double fraction = (elapsed.inMilliseconds - t1.difference(ghostStart).inMilliseconds) / segmentDuration;
-          _ghostPosition = _interpolate(LatLng(p1['lat'], p1['lng']), LatLng(p2['lat'], p2['lng']), fraction.clamp(0.0, 1.0));
-        } else {
-          _ghostPosition = LatLng(p1['lat'], p1['lng']);
-        }
+    for (int i = 0; i < _ghostPoints.length - 1; i++) {
+      DateTime t1 = DateTime.parse(_ghostPoints[i]['timestamp']);
+      DateTime t2 = DateTime.parse(_ghostPoints[i + 1]['timestamp']);
 
-        if (_currentPosition != null) {
-          // Direkter Abstand zum Geist (für Anzeige)
-          double directDistance = Geolocator.distanceBetween(
-            _currentPosition!.latitude, _currentPosition!.longitude, 
-            _ghostPosition!.latitude, _ghostPosition!.longitude
+      if (t2.difference(ghostStart) >= elapsed) {
+        double segmentTotal = t2.difference(t1).inMilliseconds.toDouble();
+        double segmentElapsed =
+            (elapsed.inMilliseconds - t1.difference(ghostStart).inMilliseconds)
+                .toDouble();
+        double fraction = (segmentElapsed / segmentTotal).clamp(0.0, 1.0);
+
+        setState(() {
+          _ghostPosition = LatLng(
+            _ghostPoints[i]['lat'] +
+                (_ghostPoints[i + 1]['lat'] - _ghostPoints[i]['lat']) *
+                    fraction,
+            _ghostPoints[i]['lng'] +
+                (_ghostPoints[i + 1]['lng'] - _ghostPoints[i]['lng']) *
+                    fraction,
           );
+        });
+        return;
+      }
+    }
+    setState(() => _ghostPosition = _targetPosition);
+  }
 
-          if (_targetPosition != null) {
-            // Berechne Fortschritt vom Start zum Ziel
-            double userToTarget = Geolocator.distanceBetween(
-              _currentPosition!.latitude, _currentPosition!.longitude, 
-              _targetPosition!.latitude, _targetPosition!.longitude
-            );
-            double ghostToTarget = Geolocator.distanceBetween(
-              _ghostPosition!.latitude, _ghostPosition!.longitude, 
-              _targetPosition!.latitude, _targetPosition!.longitude
-            );
-            
-            // Echter Vorsprung/Rückstand: Positiv = du liegst vorne
-            double userProgress = _totalGhostDistance - userToTarget;
-            double ghostProgress = _totalGhostDistance - ghostToTarget;
-            _distanceDiff = userProgress - ghostProgress;
-            
-            // Zeitdifferenz: Deine Zeit - Geist-Zeit an gleicher Streckenposition
-            // Da wir interpolation verwenden, ist die Geist-Zeit die "ideale" Zeit
-            _timeDiffSeconds = elapsed.inMilliseconds / 1000 - 
-                              DateTime.parse(p1['timestamp']).difference(ghostStart).inMilliseconds / 1000;
-            
-            // Ziel-Logik
-            if (_recordedPoints.length > 10) _goalLocked = false; 
-            if (!_goalLocked && userToTarget <= _targetRadius) _finishSession(true);
-          }
-        }
+  void _updateCamera() {
+    if (!_autoZoomActive || _currentPosition == null) return;
+    if (widget.ghostTourId != null &&
+        _ghostPosition != null &&
+        _currentPosition != null) {
+      // Berechne die Distanz zwischen aktueller Position und Geist-Position
+      double distance = Geolocator.distanceBetween(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+        _ghostPosition!.latitude,
+        _ghostPosition!.longitude,
+      );
+
+      // Berechne den erforderlichen Zoom basierend auf der Distanz
+      // Höherer Zoom für kleinere Distanzen, aber begrenze auf maximal 18
+      double calculatedZoom = 18.0 - (distance / 50.0).clamp(0.0, 10.0);
+      double zoom = calculatedZoom.clamp(10.0, 18.0); // Minimal 10, maximal 18
+
+      // Berechne den Mittelpunkt
+      double centerLat = (_currentPosition!.latitude + _ghostPosition!.latitude) / 2;
+      double centerLng = (_currentPosition!.longitude + _ghostPosition!.longitude) / 2;
+      LatLng center = LatLng(centerLat, centerLng);
+
+      // Bewege die Karte zum neuen Zentrum und Zoom
+      _mapController.move(center, zoom);
+    } else if (_currentPosition != null) {
+      _mapController.move(_currentPosition!, 18.0);
+    }
+  }
+
+  void _handleMapInteraction(MapEvent event) {
+    if (event.source != MapEventSource.mapController) {
+      if (mounted) setState(() => _autoZoomActive = false);
+      _recenterTimer?.cancel();
+      _recenterTimer = Timer(const Duration(seconds: 5), () {
+        if (mounted && _isRecording) setState(() => _autoZoomActive = true);
       });
     }
   }
 
+  Future<bool> _showExitConfirmationDialog() async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: Colors.grey[900],
+            title: const Text(
+              "Fahrt abbrechen?",
+              style: TextStyle(color: Colors.white),
+            ),
+            content: const Text(
+              "Soll die aktuelle Aufzeichnung wirklich verworfen werden?",
+              style: TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text("NEIN"),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text(
+                  "JA, BEENDEN",
+                  style: TextStyle(color: Colors.redAccent),
+                ),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
   void _finishSession(bool reachedGoal) {
     WakelockPlus.disable();
-    _ghostTicker?.cancel();
+    _uiTicker?.cancel();
     _positionStream?.cancel();
-    final duration = DateTime.now().difference(_startTime!);
-    
-    // Vergleiche mit Geist-Zeit wenn vorhanden
-    String comparisonText = "";
-    if (_ghostPoints.isNotEmpty) {
-      DateTime ghostStart = DateTime.parse(_ghostPoints.first['timestamp']);
-      DateTime ghostEnd = DateTime.parse(_ghostPoints.last['timestamp']);
-      Duration ghostDuration = ghostEnd.difference(ghostStart);
-      Duration timeDiff = duration - ghostDuration;
-      
-      if (timeDiff.inSeconds > 0) {
-        comparisonText = "\n⏱️ ${timeDiff.inSeconds}s langsamer als Geist";
-      } else if (timeDiff.inSeconds < 0) {
-        comparisonText = "\n🚀 ${(-timeDiff.inSeconds)}s schneller als Geist!";
-      } else {
-        comparisonText = "\n⚖️ Exakt gleich schnell wie Geist";
-      }
-    }
-    
-    _finalResultText = "Dauer: ${_formatDuration(duration)}\nDistanz: ${(_totalDistance / 1000).toStringAsFixed(2)} km$comparisonText";
+    _recenterTimer?.cancel();
     _showSaveDialog(reachedGoal);
   }
 
   void _showSaveDialog(bool reachedGoal) {
-    TextEditingController nameController = TextEditingController(text: "Tour ${DateTime.now().day}.${DateTime.now().month}.");
+    TextEditingController nameController = TextEditingController(
+      text: "Tour ${DateTime.now().day}.${DateTime.now().month}.",
+    );
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.grey[900],
-        title: Text(reachedGoal ? "🏆 ZIEL ERREICHT!" : "BEENDET", style: const TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(_finalResultText, style: const TextStyle(color: Colors.greenAccent, fontFamily: 'monospace')),
-            TextField(controller: nameController, style: const TextStyle(color: Colors.white)),
-          ],
+        title: Text(
+          reachedGoal ? "🏆 ZIEL ERREICHT" : "BEENDET",
+          style: const TextStyle(color: Colors.white),
+        ),
+        content: TextField(
+          controller: nameController,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            labelText: "Name der Tour",
+            labelStyle: TextStyle(color: Colors.white70),
+          ),
         ),
         actions: [
-          TextButton(onPressed: () { Navigator.pop(context); Navigator.pop(context); }, child: const Text("ZURÜCK")),
-          TextButton(onPressed: () async {
-            if (_recordedPoints.isNotEmpty) await DatabaseHelper().saveTour(nameController.text, _recordedPoints);
-            Navigator.pop(context); Navigator.pop(context);
-          }, child: const Text("SPEICHERN")),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pop(context);
+            },
+            child: const Text("VERWERFEN"),
+          ),
+          TextButton(
+            onPressed: () async {
+              if (_recordedPoints.isNotEmpty)
+                await DatabaseHelper().saveTour(
+                  nameController.text,
+                  _recordedPoints,
+                );
+              if (mounted) {
+                Navigator.pop(context);
+                Navigator.pop(context);
+              }
+            },
+            child: const Text("SPEICHERN"),
+          ),
         ],
       ),
     );
@@ -335,7 +347,8 @@ class _RecordingScreenState extends State<RecordingScreen> {
   void dispose() {
     WakelockPlus.disable();
     _countdownTimer?.cancel();
-    _ghostTicker?.cancel();
+    _uiTicker?.cancel();
+    _recenterTimer?.cancel();
     _positionStream?.cancel();
     super.dispose();
   }
@@ -347,60 +360,142 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final elapsed = _startTime != null ? DateTime.now().difference(_startTime!) : Duration.zero;
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _currentPosition ?? const LatLng(50.11, 8.68), 
-              initialZoom: 18,
-              onPositionChanged: (pos, hasGesture) { if (hasGesture) setState(() => _autoZoomActive = false); },
+    final elapsed = _startTime != null
+        ? DateTime.now().difference(_startTime!)
+        : Duration.zero;
+    String timeDisplay = widget.ghostTourId != null
+        ? (_ghostTotalDuration - elapsed).isNegative
+              ? "00:00"
+              : _formatDuration(_ghostTotalDuration - elapsed)
+        : _formatDuration(elapsed);
+
+    return PopScope(
+      canPop: !_isRecording,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldPop = await _showExitConfirmationDialog();
+        if (shouldPop && context.mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
+          children: [
+            FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: _currentPosition ?? const LatLng(50.11, 8.68),
+                initialZoom: 16,
+                onMapEvent: _handleMapInteraction,
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate:
+                      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                ),
+                if (_ghostPolyline.isNotEmpty)
+                  PolylineLayer(
+                    polylines: [
+                      Polyline(
+                        points: _ghostPolyline,
+                        strokeWidth: 6,
+                        color: ghostLineYellow,
+                      ),
+                    ],
+                  ),
+                if (_polylinePoints.isNotEmpty)
+                  PolylineLayer(
+                    polylines: [
+                      Polyline(
+                        points: _polylinePoints,
+                        strokeWidth: 7,
+                        color: userNeonGreen,
+                      ),
+                    ],
+                  ),
+                MarkerLayer(
+                  markers: [
+                    if (_ghostPosition != null)
+                      Marker(
+                        point: _ghostPosition!,
+                        width: 50,
+                        height: 50,
+                        child: const Icon(
+                          Icons.psychology,
+                          color: Colors.blueAccent,
+                          size: 45,
+                        ),
+                      ),
+                    if (_currentPosition != null)
+                      Marker(
+                        point: _currentPosition!,
+                        width: 45,
+                        height: 45,
+                        child: Transform.rotate(
+                          angle: _currentHeading * (3.14159 / 180),
+                          child: Icon(
+                            Icons.navigation,
+                            color: userNeonGreen,
+                            size: 40,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
             ),
-            children: [
-              TileLayer(urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'),
-              if (_ghostPolyline.isNotEmpty) PolylineLayer(polylines: [Polyline(points: _ghostPolyline, strokeWidth: 6, color: ghostLineYellow)]),
-              if (_polylinePoints.length >= 2) PolylineLayer(polylines: [Polyline(points: _polylinePoints, strokeWidth: 7, color: userNeonGreen)]),
-              MarkerLayer(markers: [
-                if (_currentPosition != null) 
-                  Marker(point: _currentPosition!, width: 45, height: 45, child: Transform.rotate(angle: (_currentHeading * (3.14159 / 180)), child: Container(decoration: BoxDecoration(color: userNeonGreen, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3)), child: const Icon(Icons.navigation, size: 30)))),
-                if (_ghostPosition != null) 
-                  Marker(point: _ghostPosition!, width: 45, height: 45, child: Container(decoration: BoxDecoration(color: ghostNeonBlue, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3)), child: const Center(child: Text("G", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black))))),
-                if (_targetPosition != null) 
-                  Marker(point: _targetPosition!, width: 55, height: 55, child: Icon(Icons.flag_circle, color: _goalLocked ? Colors.white24 : Colors.redAccent, size: 55)),
-              ]),
-            ],
-          ),
-          
-          // Stats Overlay
-          if (_isRecording)
-            SafeArea(child: Align(alignment: Alignment.topCenter, child: Container(margin: const EdgeInsets.all(10), padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.white10)), child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-              _buildStat("ZEIT", _formatDuration(elapsed)),
-              _buildStat("DIST +/-", "${_distanceDiff >= 0 ? '+' : ''}${_distanceDiff.toStringAsFixed(0)}m", color: _distanceDiff >= 0 ? Colors.greenAccent : Colors.redAccent),
-              _buildStat("TIME +/-", "${_timeDiffSeconds >= 0 ? '+' : ''}${_timeDiffSeconds.toStringAsFixed(1)}s", color: _timeDiffSeconds >= 0 ? Colors.greenAccent : Colors.redAccent),
-            ])))),
-
-          // Auto-Zoom Toggle Button
-          if (_isRecording)
-            Positioned(right: 20, top: 110, child: FloatingActionButton.small(
-              backgroundColor: _autoZoomActive ? ghostNeonBlue : Colors.grey[800],
-              onPressed: () => setState(() => _autoZoomActive = !_autoZoomActive),
-              child: Icon(_autoZoomActive ? Icons.gps_fixed : Icons.gps_not_fixed, color: Colors.black),
-            )),
-
-          if (_isCountingDown) Container(color: Colors.black.withOpacity(0.9), child: Center(child: Text("$_countdownSeconds", style: TextStyle(color: ghostNeonBlue, fontSize: 180, fontWeight: FontWeight.bold)))),
-          if (_isRecording) Positioned(bottom: 40, left: 0, right: 0, child: Center(child: FloatingActionButton(backgroundColor: Colors.redAccent, onPressed: () => _finishSession(false), child: const Icon(Icons.stop)))),
-        ],
+            SafeArea(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.black87,
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Text(
+                    "⏳ $timeDisplay  |  🏁 ${(_totalDistance / 1000).toStringAsFixed(2)} km",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (_isCountingDown)
+              Container(
+                color: Colors.black.withOpacity(0.9),
+                child: Center(
+                  child: Text(
+                    "$_countdownSeconds",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 160,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            if (_isRecording)
+              Positioned(
+                bottom: 40,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: FloatingActionButton.large(
+                    backgroundColor: Colors.redAccent,
+                    onPressed: () => _finishSession(false),
+                    child: const Icon(Icons.stop, size: 40),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
-  }
-
-  Widget _buildStat(String label, String value, {Color color = Colors.white}) {
-    return Column(mainAxisSize: MainAxisSize.min, children: [
-      Text(label, style: const TextStyle(color: Colors.white54, fontSize: 10)),
-      Text(value, style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-    ]);
   }
 }

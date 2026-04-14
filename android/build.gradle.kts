@@ -14,6 +14,18 @@ rootProject.layout.buildDirectory.value(newBuildDir)
 subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
+    
+    // Java 17 Konfiguration für alle Subprojects (kompatibel mit meisten Plugins)
+    tasks.withType<JavaCompile> {
+        sourceCompatibility = JavaVersion.VERSION_17.toString()
+        targetCompatibility = JavaVersion.VERSION_17.toString()
+    }
+    
+    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
+    }
 }
 subprojects {
     project.evaluationDependsOn(":app")
