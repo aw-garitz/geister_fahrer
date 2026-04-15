@@ -30,6 +30,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
   LatLng? _ghostPosition;
   LatLng? _targetPosition;
   double _currentHeading = 0.0;
+  double _zoomFactor = 20.0;
 
   bool _isRecording = false;
   bool _isCountingDown = true;
@@ -96,7 +97,8 @@ class _RecordingScreenState extends State<RecordingScreen> {
         setState(() {
           _currentPosition = LatLng(pos.latitude, pos.longitude);
         });
-        _mapController.move(_currentPosition!, 16);
+        _mapController.move(_currentPosition!, _zoomFactor);
+        _updateCamera();
       }
     } catch (_) {}
 
@@ -119,16 +121,17 @@ class _RecordingScreenState extends State<RecordingScreen> {
       setState(() {
         _isRecording = true;
         _isCountingDown = false;
+        _autoZoomActive = true;
         _startTime = DateTime.now();
         _recordedPoints.clear();
         _polylinePoints.clear();
       });
     }
+    _updateCamera();
 
     _uiTicker = Timer.periodic(const Duration(milliseconds: 100), (timer) {
       if (_isRecording) {
         _updateGhostLogic();
-        _updateCamera();
       }
     });
 
@@ -176,6 +179,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
         }
       }
     });
+    _updateCamera();
   }
 
   void _updateGhostLogic() {
@@ -210,10 +214,12 @@ class _RecordingScreenState extends State<RecordingScreen> {
                     fraction,
           );
         });
+        _updateCamera();
         return;
       }
     }
     setState(() => _ghostPosition = _targetPosition);
+    _updateCamera();
   }
 
   void _updateCamera() {
@@ -221,28 +227,17 @@ class _RecordingScreenState extends State<RecordingScreen> {
     if (widget.ghostTourId != null &&
         _ghostPosition != null &&
         _currentPosition != null) {
-      // Berechne die Distanz zwischen aktueller Position und Geist-Position
-      double distance = Geolocator.distanceBetween(
-        _currentPosition!.latitude,
-        _currentPosition!.longitude,
-        _ghostPosition!.latitude,
-        _ghostPosition!.longitude,
+      final bounds = LatLngBounds(_currentPosition!, _ghostPosition!);
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: bounds,
+          padding: const EdgeInsets.all(40),
+          minZoom: 5.0,
+          maxZoom: _zoomFactor,
+        ),
       );
-
-      // Berechne den erforderlichen Zoom basierend auf der Distanz
-      // Höherer Zoom für kleinere Distanzen, aber begrenze auf maximal 18
-      double calculatedZoom = 18.0 - (distance / 50.0).clamp(0.0, 10.0);
-      double zoom = calculatedZoom.clamp(10.0, 18.0); // Minimal 10, maximal 18
-
-      // Berechne den Mittelpunkt
-      double centerLat = (_currentPosition!.latitude + _ghostPosition!.latitude) / 2;
-      double centerLng = (_currentPosition!.longitude + _ghostPosition!.longitude) / 2;
-      LatLng center = LatLng(centerLat, centerLng);
-
-      // Bewege die Karte zum neuen Zentrum und Zoom
-      _mapController.move(center, zoom);
     } else if (_currentPosition != null) {
-      _mapController.move(_currentPosition!, 18.0);
+      _mapController.move(_currentPosition!, _zoomFactor);
     }
   }
 
@@ -433,7 +428,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
               mapController: _mapController,
               options: MapOptions(
                 initialCenter: _currentPosition ?? const LatLng(50.11, 8.68),
-                initialZoom: 16,
+                initialZoom: 22.0,
                 onMapEvent: _handleMapInteraction,
               ),
               children: [
