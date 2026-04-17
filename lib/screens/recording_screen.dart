@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -18,8 +19,8 @@ class RecordingScreen extends StatefulWidget {
 class _RecordingScreenState extends State<RecordingScreen> {
   final MapController _mapController = MapController();
 
-  List<Map<String, dynamic>> _recordedPoints = [];
-  List<LatLng> _polylinePoints = [];
+  final List<Map<String, dynamic>> _recordedPoints = [];
+  final List<LatLng> _polylinePoints = [];
   double _totalDistance = 0.0;
 
   List<Map<String, dynamic>> _ghostPoints = [];
@@ -30,12 +31,12 @@ class _RecordingScreenState extends State<RecordingScreen> {
   LatLng? _ghostPosition;
   LatLng? _targetPosition;
   double _currentHeading = 0.0;
-  double _zoomFactor = 20.0;
+  final double _zoomFactor = 20.0;
 
   bool _isRecording = false;
   bool _isCountingDown = true;
   bool _autoZoomActive = true;
-  bool _isLoadingGhostData = false; // Loading State für Geist-Daten
+  final bool _isLoadingGhostData = false; // Loading State für Geist-Daten
 
   int _countdownSeconds = 10;
   final double _targetRadius = 20.0; // Lastenheft Punkt 11a
@@ -231,7 +232,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
       _mapController.fitCamera(
         CameraFit.bounds(
           bounds: bounds,
-          padding: const EdgeInsets.all(40),
+          padding: const EdgeInsets.fromLTRB(40, 140, 40, 150), // Oben 100 für Zeit, Unten 140 für Button
           minZoom: 5.0,
           maxZoom: _zoomFactor,
         ),
@@ -370,11 +371,12 @@ class _RecordingScreenState extends State<RecordingScreen> {
           ),
           TextButton(
             onPressed: () async {
-              if (_recordedPoints.isNotEmpty)
+              if (_recordedPoints.isNotEmpty) {
                 await DatabaseHelper().saveTour(
                   nameController.text,
                   _recordedPoints,
                 );
+              }
               if (mounted) {
                 Navigator.pop(context);
                 Navigator.pop(context);
@@ -510,6 +512,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                 ),
               ),
             ),
+            
             if (_isCountingDown)
               Container(
                 color: Colors.black.withOpacity(0.9),
