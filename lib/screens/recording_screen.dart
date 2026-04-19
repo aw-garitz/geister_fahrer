@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -16,7 +15,7 @@ class RecordingScreen extends StatefulWidget {
   State<RecordingScreen> createState() => _RecordingScreenState();
 }
 
-class _RecordingScreenState extends State<RecordingScreen> {
+class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProviderStateMixin {
   final MapController _mapController = MapController();
 
   final List<Map<String, dynamic>> _recordedPoints = [];
@@ -31,6 +30,14 @@ class _RecordingScreenState extends State<RecordingScreen> {
   LatLng? _ghostPosition;
   LatLng? _targetPosition;
   double _currentHeading = 0.0;
+
+  // Variablen für die Marker-Glättung
+  late AnimationController _markerController;
+  LatLng? _oldPosition;
+  LatLng? _targetUserPosition;
+  double _oldHeading = 0.0;
+  double _targetHeading = 0.0;
+
   final double _zoomFactor = 20.0;
 
   bool _isRecording = false;
@@ -56,6 +63,37 @@ class _RecordingScreenState extends State<RecordingScreen> {
   void initState() {
     super.initState();
     WakelockPlus.enable();
+
+    _markerController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400), // Etwas kürzer für direkteres Feedback
+    );
+
+    _markerController.addListener(() {
+      if (!mounted || _oldPosition == null || _targetUserPosition == null) return;
+      
+      final t = _markerController.value;
+      setState(() {
+        _currentPosition = LatLng(
+          _oldPosition!.latitude + (_targetUserPosition!.latitude - _oldPosition!.latitude) * t,
+          _oldPosition!.longitude + (_targetUserPosition!.longitude - _oldPosition!.longitude) * t,
+        );
+        // Glättung der Drehung
+        // Sicherstellen, dass die Drehung den kürzesten Weg nimmt
+        double diff = _targetHeading - _oldHeading;
+        if (diff > 180) diff -= 360;
+        if (diff < -180) diff += 360;
+        _currentHeading = _oldHeading + diff * t;
+
+      });
+
+      // Performance-Optimierung: Kamera nur im Single-Modus flüssig mitbewegen.
+      // Im Ghost-Modus ist fitCamera zu schwer für 60fps; dort reicht der 100ms Ticker.
+      if (widget.ghostTourId == null) {
+        _updateCamera();
+      }
+    });
+
     _prepareRecording();
   }
 
@@ -140,7 +178,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
       locationSettings: AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: 0,
-        intervalDuration: Duration(milliseconds: 500),
+        intervalDuration: Duration(milliseconds: 400),
       ),
     ).listen((Position position) => _addPoint(position));
   }
@@ -149,38 +187,43 @@ class _RecordingScreenState extends State<RecordingScreen> {
     if (!mounted) return;
     LatLng newLatLng = LatLng(pos.latitude, pos.longitude);
 
-    setState(() {
-      if (_polylinePoints.isNotEmpty) {
-        _totalDistance += Geolocator.distanceBetween(
-          _polylinePoints.last.latitude,
-          _polylinePoints.last.longitude,
-          newLatLng.latitude,
-          newLatLng.longitude,
-        );
-      }
-      _currentPosition = newLatLng;
-      _currentHeading = pos.heading;
-      _polylinePoints.add(newLatLng);
-      _recordedPoints.add({
-        'lat': pos.latitude,
-        'lng': pos.longitude,
-        'alt': pos.altitude,
-        'timestamp': DateTime.now().toIso8601String(),
-      });
-
-      if (widget.ghostTourId != null && _targetPosition != null) {
-        double distToTarget = Geolocator.distanceBetween(
-          newLatLng.latitude,
-          newLatLng.longitude,
-          _targetPosition!.latitude,
-          _targetPosition!.longitude,
-        );
-        if (_polylinePoints.length > 5 && distToTarget < 20.0) {
-          _finishSession(true);
-        }
-      }
+    // Berechnungen sofort ausführen
+    if (_polylinePoints.isNotEmpty) {
+      _totalDistance += Geolocator.distanceBetween(
+        _polylinePoints.last.latitude,
+        _polylinePoints.last.longitude,
+        newLatLng.latitude,
+        newLatLng.longitude,
+      );
+    }
+    _polylinePoints.add(newLatLng);
+    _recordedPoints.add({
+      'lat': pos.latitude,
+      'lng': pos.longitude,
+      'alt': pos.altitude,
+      'timestamp': DateTime.now().toIso8601String(),
     });
-    _updateCamera();
+
+    // Ziel-Check
+    if (widget.ghostTourId != null && _targetPosition != null) {
+      double distToTarget = Geolocator.distanceBetween(
+        newLatLng.latitude,
+        newLatLng.longitude,
+        _targetPosition!.latitude,
+        _targetPosition!.longitude,
+      );
+      if (_polylinePoints.length > 5 && distToTarget < 20.0) {
+        _finishSession(true);
+      }
+    }
+
+    // Animation starten
+    _oldPosition = _currentPosition ?? newLatLng;
+    _targetUserPosition = newLatLng;
+    _oldHeading = _currentHeading;
+    _targetHeading = pos.heading;
+    
+    _markerController.forward(from: 0.0);
   }
 
   void _updateGhostLogic() {
@@ -396,6 +439,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
     _uiTicker?.cancel();
     _recenterTimer?.cancel();
     _positionStream?.cancel();
+    _markerController.dispose();
     super.dispose();
   }
 
