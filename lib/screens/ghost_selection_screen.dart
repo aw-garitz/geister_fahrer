@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../database_helper.dart';
 import 'recording_screen.dart';
 import 'tour_detail_screen.dart';
+import '../utils/ui_helper.dart';
 
 class GhostSelectionScreen extends StatefulWidget {
   final bool startInEditMode; 
@@ -42,38 +43,73 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
 
   // --- DIALOGE ---
 
-  void _showRenameDialog(int id, String currentName) {
+  void _showRenameDialog(int id, String currentName, String currentActivity) {
     TextEditingController controller = TextEditingController(text: currentName);
+    String selectedActivity = currentActivity;
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[900],
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: ghostBlue, width: 1),
-        ),
-        title: const Text("TOUR UMBENENNEN", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            labelText: "Neuer Name",
-            labelStyle: TextStyle(color: ghostBlue),
-            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: ghostBlue)),
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("ABBRECHEN", style: TextStyle(color: Colors.white54))),
-          TextButton(
-            onPressed: () async {
-              await DatabaseHelper().renameTour(id, controller.text);
-              Navigator.pop(context);
-              _loadTours();
-            },
-            child: Text("SPEICHERN", style: TextStyle(color: ghostBlue, fontWeight: FontWeight.bold)),
-          ),
-        ],
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Widget buildActivityIcon(String type, IconData icon) {
+            bool isSelected = selectedActivity == type;
+            return GestureDetector(
+              onTap: () => setDialogState(() => selectedActivity = type),
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isSelected ? userNeonGreen : Colors.white10,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: isSelected ? Colors.black : Colors.white),
+              ),
+            );
+          }
+
+          return AlertDialog(
+            backgroundColor: Colors.grey[900],
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide(color: ghostBlue, width: 1),
+            ),
+            title: const Text("TOUR BEARBEITEN", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    buildActivityIcon('bike', Icons.directions_bike),
+                    buildActivityIcon('run', Icons.directions_run),
+                    buildActivityIcon('car', Icons.directions_car),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: "Name der Tour",
+                    labelStyle: TextStyle(color: ghostBlue),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: ghostBlue)),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text("ABBRECHEN", style: TextStyle(color: Colors.white54))),
+              TextButton(
+                onPressed: () async {
+                  await DatabaseHelper().updateTourMetadata(id, controller.text, selectedActivity);
+                  Navigator.pop(context);
+                  _loadTours();
+                },
+                child: Text("SPEICHERN", style: TextStyle(color: ghostBlue, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        }
       ),
     );
   }
@@ -183,7 +219,7 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
                       color: ghostBlue.withOpacity(0.1),
                       borderRadius: const BorderRadius.only(topLeft: Radius.circular(23), bottomLeft: Radius.circular(23)),
                     ),
-                    child: Icon(Icons.bolt, color: ghostBlue, size: 45),
+                    child: Icon(UIHelper.getActivityIcon(tour['activity_type']), color: ghostBlue, size: 45),
                   ),
                   Expanded(
                     child: Padding(
@@ -228,12 +264,13 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
             onTap: () {
               Navigator.push(context, MaterialPageRoute(builder: (context) => TourDetailScreen(tourId: tour['id'])));
             },
+            leading: Icon(UIHelper.getActivityIcon(tour['activity_type']), color: Colors.white70),
             title: Text(tour['name'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             subtitle: Text("${tour['date']?.toString().substring(0,10) ?? ''} • ${tour['distance'] ?? ''}", style: const TextStyle(color: Colors.white38)),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                IconButton(icon: const Icon(Icons.edit, color: Colors.white54), onPressed: () => _showRenameDialog(tour['id'], tour['name'])),
+                IconButton(icon: const Icon(Icons.edit, color: Colors.white54), onPressed: () => _showRenameDialog(tour['id'], tour['name'], tour['activity_type'] ?? 'bike')),
                 IconButton(icon: const Icon(Icons.delete, color: Colors.redAccent), onPressed: () => _confirmDelete(tour['id'])),
               ],
             ),

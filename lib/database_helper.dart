@@ -20,7 +20,7 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'ghost_ride.db');
     return await openDatabase(
       path,
-      version: 2, // Version auf 2 erhöht
+      version: 3, // Version auf 3 erhöht für activity_type
       onConfigure: (db) async => await db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, version) async {
         await db.execute('''
@@ -30,7 +30,8 @@ class DatabaseHelper {
             date TEXT,
             distance TEXT,   -- NEU: Gesamtdistanz als String (z.B. "5.2 km")
             duration TEXT,   -- NEU: Gesamtdauer als String (z.B. "12:34")
-            is_favorite INTEGER DEFAULT 0
+            is_favorite INTEGER DEFAULT 0,
+            activity_type TEXT DEFAULT 'bike'
           )
         ''');
         
@@ -50,13 +51,16 @@ class DatabaseHelper {
           await db.execute('ALTER TABLE tours ADD COLUMN distance TEXT');
           await db.execute('ALTER TABLE tours ADD COLUMN duration TEXT');
         }
+        if (oldVersion < 3) {
+          await db.execute("ALTER TABLE tours ADD COLUMN activity_type TEXT DEFAULT 'bike'");
+        }
       },
     );
   }
 
   // --- SPEICHERN MIT BERECHNUNG ---
 
-  Future<void> saveTour(String name, List<Map<String, dynamic>> points) async {
+  Future<void> saveTour(String name, String activityType, List<Map<String, dynamic>> points) async {
     if (points.isEmpty) return;
 
     // 1. Distanz berechnen
@@ -84,6 +88,7 @@ class DatabaseHelper {
         'distance': distanceStr,
         'duration': durationStr,
         'is_favorite': 0,
+        'activity_type': activityType,
       });
 
       for (var point in points) {
@@ -115,9 +120,14 @@ class DatabaseHelper {
     return await db.update('tours', {'is_favorite': status}, where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<int> renameTour(int id, String newName) async {
+  Future<int> updateTourMetadata(int id, String newName, String activityType) async {
     final db = await database;
-    return await db.update('tours', {'name': newName}, where: 'id = ?', whereArgs: [id]);
+    return await db.update(
+      'tours',
+      {'name': newName, 'activity_type': activityType},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<void> deleteTour(int id) async {

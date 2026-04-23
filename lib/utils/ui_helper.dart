@@ -17,4 +17,13 @@ class UIHelper {
   // Dynamische Schriftgrößen (basierend auf der Breite, damit Text nicht umbricht)
   static double dynamicFontSize(BuildContext context, double percent) => 
       deviceWidth(context) * percent;
+
+  // Gibt das passende Icon für die Fortbewegungsart zurück
+  static IconData getActivityIcon(String? type) {
+    switch (type) {
+      case 'run': return Icons.directions_run;
+      case 'car': return Icons.directions_car;
+      default: return Icons.directions_bike;
+    }
+  }
 }

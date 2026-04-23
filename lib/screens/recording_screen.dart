@@ -371,63 +371,110 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
       distanceComparison = "Distanz: $distanceDiffStr";
     }
 
+    String selectedActivity = 'bike';
+
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[900],
-        title: Text(
-          reachedGoal ? "🏆 ZIEL ERREICHT" : "BEENDET",
-          style: const TextStyle(color: Colors.white),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (timeComparison.isNotEmpty)
-              Text(
-                timeComparison,
-                style: const TextStyle(color: Colors.white70, fontSize: 16),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Widget buildActivityIcon(String type, IconData icon) {
+            bool isSelected = selectedActivity == type;
+            return GestureDetector(
+              onTap: () => setDialogState(() => selectedActivity = type),
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isSelected ? userNeonGreen : Colors.white10,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: isSelected ? Colors.black : Colors.white),
               ),
-            if (distanceComparison.isNotEmpty)
-              Text(
-                distanceComparison,
-                style: const TextStyle(color: Colors.white70, fontSize: 16),
-              ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: nameController,
+            );
+          }
+
+          return AlertDialog(
+            backgroundColor: Colors.grey[900],
+            title: Text(
+              reachedGoal ? "🏆 ZIEL ERREICHT" : "BEENDET",
               style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: "Name der Tour",
-                labelStyle: TextStyle(color: Colors.white70),
-              ),
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            child: const Text("VERWERFEN"),
-          ),
-          TextButton(
-            onPressed: () async {
-              if (_recordedPoints.isNotEmpty) {
-                await DatabaseHelper().saveTour(
-                  nameController.text,
-                  _recordedPoints,
-                );
-              }
-              if (mounted) {
-                Navigator.pop(context);
-                Navigator.pop(context);
-              }
-            },
-            child: const Text("SPEICHERN"),
-          ),
-        ],
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (timeComparison.isNotEmpty)
+                  Text(
+                    timeComparison,
+                    style: const TextStyle(color: Colors.white70, fontSize: 16),
+                  ),
+                if (distanceComparison.isNotEmpty)
+                  Text(
+                    distanceComparison,
+                    style: const TextStyle(color: Colors.white70, fontSize: 16),
+                  ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    buildActivityIcon('bike', Icons.directions_bike),
+                    buildActivityIcon('run', Icons.directions_run),
+                    buildActivityIcon('car', Icons.directions_car),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: nameController,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.sentences,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: "Name der Tour",
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: Colors.white24)),
+                    focusedBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: Colors.greenAccent)),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: Colors.white54),
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.pop(context);
+                },
+                child: const Text("VERWERFEN",
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00FF00), // Neon Grün
+                  foregroundColor: Colors.black,
+                  elevation: 5,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: () async {
+                  if (_recordedPoints.isNotEmpty) {
+                    await DatabaseHelper().saveTour(
+                      nameController.text,
+                      selectedActivity,
+                      _recordedPoints,
+                    );
+                  }
+                  if (mounted) {
+                    Navigator.pop(context);
+                    Navigator.pop(context);
+                  }
+                },
+                child: const Text("SPEICHERN",
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
