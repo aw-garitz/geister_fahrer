@@ -21,6 +21,9 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
   final Color ghostBlue = const Color(0xFF00B4FF);
   final Color userNeonGreen = const Color(0xFF00FF00);
 
+  String _activityFilter = 'all'; // 'all', 'bike', 'run', 'car'
+  bool _sortAscending = false; // false = neueste zuerst (desc)
+
   @override
   void initState() {
     super.initState();
@@ -39,6 +42,91 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
       _tours = data;
       _isLoading = false;
     });
+  }
+
+  // Hilfsmethode zum Filtern und Sortieren der geladenen Daten
+  List<Map<String, dynamic>> get _filteredAndSortedTours {
+    List<Map<String, dynamic>> list = List.from(_tours);
+
+    // 1. Filtern
+    if (_activityFilter != 'all') {
+      list = list.where((t) => t['activity_type'] == _activityFilter).toList();
+    }
+
+    // 2. Sortieren
+    list.sort((a, b) {
+      // Favoriten immer zuerst
+      if (a['is_favorite'] != b['is_favorite']) {
+        return b['is_favorite'].compareTo(a['is_favorite']);
+      }
+      
+      // Danach nach Datum
+      DateTime dateA = DateTime.tryParse(a['date'] ?? '') ?? DateTime(2000);
+      DateTime dateB = DateTime.tryParse(b['date'] ?? '') ?? DateTime(2000);
+      
+      return _sortAscending ? dateA.compareTo(dateB) : dateB.compareTo(dateA);
+    });
+
+    return list;
+  }
+
+  Widget _buildFilterBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      color: Colors.white.withOpacity(0.02),
+      child: Row(
+        children: [
+          _buildFilterChip('all', Icons.filter_list, "ALLE"),
+          _buildFilterChip('bike', Icons.directions_bike, null),
+          _buildFilterChip('run', Icons.directions_run, null),
+          _buildFilterChip('car', Icons.directions_car, null),
+          const Spacer(),
+          IconButton(
+            icon: Icon(
+              _sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
+              color: ghostBlue,
+              size: 20,
+            ),
+            onPressed: () => setState(() => _sortAscending = !_sortAscending),
+            tooltip: "Datum sortieren",
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String type, IconData icon, String? label) {
+    bool isSelected = _activityFilter == type;
+    return GestureDetector(
+      onTap: () => setState(() => _activityFilter = type),
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? ghostBlue.withOpacity(0.2) : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? ghostBlue : Colors.white10,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: isSelected ? ghostBlue : Colors.white38),
+            if (label != null) ...[
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? ghostBlue : Colors.white38,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ]
+          ],
+        ),
+      ),
+    );
   }
 
   // --- DIALOGE ---
@@ -193,12 +281,13 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
   // --- LISTEN ---
 
   Widget _buildRaceList() {
-    if (_tours.isEmpty) return const Center(child: Text("NOCH KEINE TOUREN", style: TextStyle(color: Colors.white24)));
+    final filteredList = _filteredAndSortedTours;
+    if (filteredList.isEmpty) return const Center(child: Text("KEINE TOUREN GEFUNDEN", style: TextStyle(color: Colors.white24)));
     return ListView.builder(
-      itemCount: _tours.length,
+      itemCount: filteredList.length,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       itemBuilder: (context, index) {
-        final tour = _tours[index];
+        final tour = filteredList[index];
         return Padding(
           padding: const EdgeInsets.only(bottom: 15),
           child: InkWell(
@@ -247,12 +336,13 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
   }
 
   Widget _buildAdminList() {
-    if (_tours.isEmpty) return const Center(child: Text("LISTE LEER", style: TextStyle(color: Colors.white24)));
+    final filteredList = _filteredAndSortedTours;
+    if (filteredList.isEmpty) return const Center(child: Text("LISTE LEER", style: TextStyle(color: Colors.white24)));
     return ListView.builder(
-      itemCount: _tours.length,
+      itemCount: filteredList.length,
       padding: const EdgeInsets.symmetric(vertical: 10),
       itemBuilder: (context, index) {
-        final tour = _tours[index];
+        final tour = filteredList[index];
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           decoration: BoxDecoration(
@@ -293,10 +383,19 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
           tabs: const [ Tab(text: "RENNEN"), Tab(text: "VERWALTEN") ],
         ),
       ),
-      body: _isLoading ? Center(child: CircularProgressIndicator(color: ghostBlue)) : TabBarView(
-        controller: _tabController,
-        children: [ _buildRaceList(), _buildAdminList() ],
-      ),
+      body: _isLoading 
+        ? Center(child: CircularProgressIndicator(color: ghostBlue)) 
+        : Column(
+            children: [
+              _buildFilterBar(), // Hier wird die Filter-Leiste eingefügt
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [ _buildRaceList(), _buildAdminList() ],
+                ),
+              ),
+            ],
+          ),
     );
   }
 
