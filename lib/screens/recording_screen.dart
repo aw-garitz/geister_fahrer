@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -28,6 +29,7 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
 
   LatLng? _currentPosition;
   LatLng? _ghostPosition;
+  double? _ghostAltitude;
   LatLng? _targetPosition;
   double _currentHeading = 0.0;
 
@@ -120,6 +122,7 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
         _ghostPolyline = points.map((p) => LatLng(p['lat'], p['lng'])).toList();
         _targetPosition = _ghostPolyline.last;
         _ghostPosition = _ghostPolyline.first;
+        _ghostAltitude = (points.first['alt'] as num).toDouble();
 
         DateTime gStart = DateTime.parse(_ghostPoints.first['timestamp']);
         DateTime gEnd = DateTime.parse(_ghostPoints.last['timestamp']);
@@ -205,14 +208,17 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     });
 
     // Ziel-Check
-    if (widget.ghostTourId != null && _targetPosition != null) {
+    if (widget.ghostTourId != null && _targetPosition != null && _startTime != null) {
+      final elapsedSinceStart = DateTime.now().difference(_startTime!);
       double distToTarget = Geolocator.distanceBetween(
         newLatLng.latitude,
         newLatLng.longitude,
         _targetPosition!.latitude,
         _targetPosition!.longitude,
       );
-      if (_polylinePoints.length > 5 && distToTarget < 20.0) {
+      // Ziel erst nach 60 Sekunden "scharf" schalten, 
+      // um bei Rundkursen ein sofortiges Beenden am Start zu verhindern.
+      if (elapsedSinceStart.inSeconds > 60 && distToTarget < 20.0) {
         _finishSession(true);
       }
     }
@@ -257,12 +263,21 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
                 (_ghostPoints[i + 1]['lng'] - _ghostPoints[i]['lng']) *
                     fraction,
           );
+          _ghostAltitude = (_ghostPoints[i]['alt'] as num).toDouble() +
+              ((_ghostPoints[i + 1]['alt'] as num).toDouble() -
+                      (_ghostPoints[i]['alt'] as num).toDouble()) *
+                  fraction;
         });
         _updateCamera();
         return;
       }
     }
-    setState(() => _ghostPosition = _targetPosition);
+    setState(() {
+      _ghostPosition = _targetPosition;
+      if (_ghostPoints.isNotEmpty) {
+        _ghostAltitude = (_ghostPoints.last['alt'] as num).toDouble();
+      }
+    });
     _updateCamera();
   }
 
@@ -495,6 +510,58 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     return "${twoDigits(d.inMinutes)}:${twoDigits(d.inSeconds.remainder(60))}";
   }
 
+  Widget _buildElevationStrip() {
+    // Wir zeigen den Streifen nur an, wenn wir aufzeichnen
+    if (!_isRecording && !_isCountingDown) return const SizedBox.shrink();
+
+    List<double> userAlts = _recordedPoints.map((p) => (p['alt'] as num).toDouble()).toList();
+    List<double>? ghostAlts;
+    
+    if (_ghostPoints.isNotEmpty) {
+      ghostAlts = _ghostPoints.map((p) => (p['alt'] as num).toDouble()).toList();
+    }
+
+    double? altDiff;
+    if (widget.ghostTourId != null && _ghostAltitude != null && _recordedPoints.isNotEmpty) {
+      altDiff = (_recordedPoints.last['alt'] as num).toDouble() - _ghostAltitude!;
+    }
+
+    return Container(
+      height: 80,
+      width: double.infinity,
+      color: Colors.black,
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: CustomPaint(
+              painter: ElevationPainter(
+                userAltitudes: userAlts,
+                ghostAltitudes: ghostAlts,
+                userColor: userNeonGreen,
+                ghostColor: ghostLineYellow.withOpacity(0.5),
+              ),
+            ),
+          ),
+          if (altDiff != null)
+            Positioned(
+              right: 15,
+              top: 0,
+              child: Text(
+                "Δ ${altDiff > 0 ? '+' : ''}${altDiff.toStringAsFixed(1)} m",
+                style: TextStyle(
+                  color: altDiff >= 0 ? userNeonGreen : Colors.redAccent,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                  backgroundColor: Colors.black45,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final elapsed = _startTime != null
@@ -515,125 +582,210 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: Stack(
+        body: SafeArea(
+          top: false, // Die Karte soll oben weiterhin unter die Statusleiste gehen
+          child: Column(
           children: [
-            FlutterMap(
-              mapController: _mapController,
-              options: MapOptions(
-                initialCenter: _currentPosition ?? const LatLng(50.11, 8.68),
-                initialZoom: 22.0,
-                onMapEvent: _handleMapInteraction,
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate:
-                      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-                ),
-                if (_ghostPolyline.isNotEmpty)
-                  PolylineLayer(
-                    polylines: [
-                      Polyline(
-                        points: _ghostPolyline,
-                        strokeWidth: 6,
-                        color: ghostLineYellow,
+            Expanded(
+              child: Stack(
+                children: [
+                  FlutterMap(
+                    mapController: _mapController,
+                    options: MapOptions(
+                      initialCenter: _currentPosition ?? const LatLng(50.11, 8.68),
+                      initialZoom: 22.0,
+                      onMapEvent: _handleMapInteraction,
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate:
+                            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                       ),
-                    ],
-                  ),
-                if (_polylinePoints.isNotEmpty)
-                  PolylineLayer(
-                    polylines: [
-                      Polyline(
-                        points: _polylinePoints,
-                        strokeWidth: 7,
-                        color: userNeonGreen,
-                      ),
-                    ],
-                  ),
-                MarkerLayer(
-                  markers: [
-                    if (_ghostPosition != null)
-                      Marker(
-                        point: _ghostPosition!,
-                        width: 50,
-                        height: 50,
-                        child: const Icon(
-                          Icons.psychology,
-                          color: Colors.blueAccent,
-                          size: 45,
+                      if (_ghostPolyline.isNotEmpty)
+                        PolylineLayer(
+                          polylines: [
+                            Polyline(
+                              points: _ghostPolyline,
+                              strokeWidth: 6,
+                              color: ghostLineYellow,
+                            ),
+                          ],
                         ),
+                      if (_polylinePoints.isNotEmpty)
+                        PolylineLayer(
+                          polylines: [
+                            Polyline(
+                              points: _polylinePoints,
+                              strokeWidth: 7,
+                              color: userNeonGreen,
+                            ),
+                          ],
+                        ),
+                      MarkerLayer(
+                        markers: [
+                          if (_ghostPosition != null)
+                            Marker(
+                              point: _ghostPosition!,
+                              width: 50,
+                              height: 50,
+                              child: const Icon(
+                                Icons.psychology,
+                                color: Colors.blueAccent,
+                                size: 45,
+                              ),
+                            ),
+                          if (_currentPosition != null)
+                            Marker(
+                              point: _currentPosition!,
+                              width: 45,
+                              height: 45,
+                              child: Transform.rotate(
+                                angle: _currentHeading * (3.14159 / 180),
+                                child: Icon(
+                                  Icons.navigation,
+                                  color: userNeonGreen,
+                                  size: 40,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
-                    if (_currentPosition != null)
-                      Marker(
-                        point: _currentPosition!,
-                        width: 45,
-                        height: 45,
-                        child: Transform.rotate(
-                          angle: _currentHeading * (3.14159 / 180),
-                          child: Icon(
-                            Icons.navigation,
-                            color: userNeonGreen,
-                            size: 40,
+                    ],
+                  ),
+                  SafeArea(
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.black87,
+                          borderRadius: BorderRadius.circular(15),
+                          border: Border.all(color: Colors.white24),
+                        ),
+                        child: Text(
+                          "⏳ $timeDisplay  |  🏁 ${(_totalDistance / 1000).toStringAsFixed(2)} km",
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'monospace',
                           ),
                         ),
                       ),
-                  ],
-                ),
-              ],
-            ),
-            SafeArea(
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.black87,
-                    borderRadius: BorderRadius.circular(15),
-                    border: Border.all(color: Colors.white24),
-                  ),
-                  child: Text(
-                    "⏳ $timeDisplay  |  🏁 ${(_totalDistance / 1000).toStringAsFixed(2)} km",
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace',
                     ),
                   ),
-                ),
+                  if (_isCountingDown)
+                    Container(
+                      color: Colors.black.withOpacity(0.9),
+                      child: Center(
+                        child: Text(
+                          "$_countdownSeconds",
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 160,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (_isRecording)
+                    Positioned(
+                      bottom: 20,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: FloatingActionButton(
+                          backgroundColor: Colors.redAccent,
+                          onPressed: () => _finishSession(false),
+                          child: const Icon(Icons.stop, size: 30),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
-            
-            if (_isCountingDown)
-              Container(
-                color: Colors.black.withOpacity(0.9),
-                child: Center(
-                  child: Text(
-                    "$_countdownSeconds",
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 160,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-            if (_isRecording)
-              Positioned(
-                bottom: 40,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: FloatingActionButton.large(
-                    backgroundColor: Colors.redAccent,
-                    onPressed: () => _finishSession(false),
-                    child: const Icon(Icons.stop, size: 40),
-                  ),
-                ),
-              ),
+            _buildElevationStrip(),
           ],
+        ),
         ),
       ),
     );
   }
+}
+
+class ElevationPainter extends CustomPainter {
+  final List<double> userAltitudes;
+  final List<double>? ghostAltitudes;
+  final Color userColor;
+  final Color ghostColor;
+
+  ElevationPainter({
+    required this.userAltitudes,
+    this.ghostAltitudes,
+    required this.userColor,
+    required this.ghostColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (userAltitudes.isEmpty && (ghostAltitudes == null || ghostAltitudes!.isEmpty)) return;
+
+    // Min/Max für Skalierung ermitteln
+    double minAlt = 10000;
+    double maxAlt = -10000;
+
+    for (var a in userAltitudes) {
+      if (a < minAlt) minAlt = a;
+      if (a > maxAlt) maxAlt = a;
+    }
+    if (ghostAltitudes != null) {
+      for (var a in ghostAltitudes!) {
+        if (a < minAlt) minAlt = a;
+        if (a > maxAlt) maxAlt = a;
+      }
+    }
+
+    // Kleiner Puffer oben/unten
+    double range = maxAlt - minAlt;
+    if (range < 10) range = 10;
+    minAlt -= range * 0.1;
+    maxAlt += range * 0.1;
+    range = maxAlt - minAlt;
+
+    void drawLine(List<double> alts, Color color, double strokeWidth, bool isFullWidth) {
+      final paint = Paint()
+        ..color = color
+        ..strokeWidth = strokeWidth
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
+
+      final elevationPath = ui.Path();
+      int totalPoints = isFullWidth ? alts.length : (ghostAltitudes?.length ?? alts.length);
+      
+      for (int i = 0; i < alts.length; i++) {
+        double x = size.width * (i / (totalPoints - 1).clamp(1, 999999));
+        double y = size.height - ((alts[i] - minAlt) / range * size.height);
+        if (i == 0) {
+          elevationPath.moveTo(x, y);
+        } else {
+          elevationPath.lineTo(x, y);
+        }
+      }
+      canvas.drawPath(elevationPath, paint);
+    }
+
+    // 1. Geist zeichnen (ganze Breite)
+    if (ghostAltitudes != null && ghostAltitudes!.length > 1) {
+      drawLine(ghostAltitudes!, ghostColor, 2, true);
+    }
+
+    // 2. User zeichnen
+    if (userAltitudes.length > 1) {
+      drawLine(userAltitudes, userColor, 3, ghostAltitudes == null);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

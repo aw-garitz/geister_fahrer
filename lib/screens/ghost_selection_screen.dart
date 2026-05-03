@@ -202,6 +202,43 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
     );
   }
 
+  Future<void> _reverseTour(Map<String, dynamic> tour) async {
+    setState(() => _isLoading = true);
+    try {
+      final int tourId = tour['id'];
+      final List<Map<String, dynamic>> originalPoints = await DatabaseHelper().getTourPoints(tourId);
+      
+      if (originalPoints.isEmpty) return;
+
+      // 1. Punkte umkehren
+      List<Map<String, dynamic>> reversedPoints = List.from(originalPoints.reversed);
+
+      // 2. Zeitstempel anpassen (Intervalle beibehalten)
+      DateTime startTime = DateTime.parse(originalPoints.first['timestamp']);
+      List<Map<String, dynamic>> newPoints = [];
+      DateTime currentTimestamp = startTime;
+
+      for (int i = 0; i < reversedPoints.length; i++) {
+        Map<String, dynamic> p = Map.from(reversedPoints[i]);
+        p['timestamp'] = currentTimestamp.toIso8601String();
+        newPoints.add(p);
+
+        if (i < reversedPoints.length - 1) {
+          // Intervall aus der Original-Reihenfolge nehmen
+          DateTime tCurrentOrig = DateTime.parse(originalPoints[originalPoints.length - 1 - i]['timestamp']);
+          DateTime tNextOrig = DateTime.parse(originalPoints[originalPoints.length - 2 - i]['timestamp']);
+          currentTimestamp = currentTimestamp.add(tCurrentOrig.difference(tNextOrig));
+        }
+      }
+
+      // 3. Als neue Tour speichern
+      String newName = "${tour['name']} (UMGEKEHRT)";
+      await DatabaseHelper().saveTour(newName, tour['activity_type'] ?? 'bike', newPoints);
+    } finally {
+      _loadTours();
+    }
+  }
+
   void _confirmDelete(int id) {
     showDialog(
       context: context,
@@ -360,6 +397,11 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                IconButton(
+                  icon: const Icon(Icons.swap_vert, color: Colors.blueAccent), 
+                  onPressed: () => _reverseTour(tour),
+                  tooltip: "Tour umkehren",
+                ),
                 IconButton(icon: const Icon(Icons.edit, color: Colors.white54), onPressed: () => _showRenameDialog(tour['id'], tour['name'], tour['activity_type'] ?? 'bike')),
                 IconButton(icon: const Icon(Icons.delete, color: Colors.redAccent), onPressed: () => _confirmDelete(tour['id'])),
               ],
