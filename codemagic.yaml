@@ -14,6 +14,13 @@ workflows:
       - name: Install dependencies
         script: |
           flutter pub get
+      - name: Set up Android signing
+        script: |
+          echo $CM_KEYSTORE | base64 --decode > android/app/upload-keystore.jks
+          echo "keyAlias=$CM_KEY_ALIAS" > android/key.properties
+          echo "keyPassword=$CM_KEY_PASSWORD" >> android/key.properties
+          echo "storePassword=$CM_KEYSTORE_PASSWORD" >> android/key.properties
+          echo "storeFile=upload-keystore.jks" >> android/key.properties
       - name: Flutter unit tests
         script: |
           [ -d "test" ] && flutter test || echo "Test directory not found, skipping tests..."
