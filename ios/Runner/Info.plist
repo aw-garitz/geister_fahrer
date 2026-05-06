@@ -45,5 +45,15 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Geisterfahrer benötigt deinen Standort, um deine Fahrt aufzuzeichnen und dich mit deinem Geist zu vergleichen.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Geisterfahrer benötigt den Standort auch im Hintergrund, damit die Aufzeichnung in der Tasche nicht unterbrochen wird.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Geisterfahrer benötigt den Standort im Hintergrund, um deine Tour lückenlos zu tracken.</string>
 </dict>
 </plist>

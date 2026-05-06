@@ -1,0 +1,49 @@
+workflows:
+  main-workflow:
+    name: Ghost Ride Release Build
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - google_play_signing # Deine Variablen für den Android Keystore
+        - app_store_signing   # Deine Variablen für iOS (API Key, Issuer ID etc.)
+    scripts:
+      - name: Install dependencies
+        script: |
+          flutter pub get
+      - name: Flutter unit tests
+        script: |
+          flutter test
+      - name: Build Android App Bundle
+        script: |
+          flutter build appbundle --release \
+            --build-name=1.0.0 \
+            --build-number=$BUILD_NUMBER
+      - name: Build iOS IPA
+        script: |
+          # Da wir Hintergrund-GPS nutzen, stellt Codemagic sicher, 
+          # dass die Provisioning Profiles korrekt geladen werden.
+          flutter build ipa --release \
+            --export-method app-store \
+            --build-name=1.0.0 \
+            --build-number=$BUILD_NUMBER
+    artifacts:
+      - build/app/outputs/bundle/release/*.aab
+      - build/ios/ipa/*.ipa
+      - build/native_debug_symbols.zip
+    publishing:
+      email:
+        recipients:
+          - dein-email@beispiel.de
+        notify:
+          success: true
+          failure: true
+      # Hier kannst du später Google Play und App Store Connect aktivieren
+      # google_play:
+      #   credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+      #   track: internal
+      # app_store_connect:
+      #   auth: integration

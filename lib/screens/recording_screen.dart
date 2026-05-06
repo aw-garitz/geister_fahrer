@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:battery_plus/battery_plus.dart';
 import '../database_helper.dart';
 
 class RecordingScreen extends StatefulWidget {
@@ -48,7 +49,8 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
   final bool _isLoadingGhostData = false; // Loading State für Geist-Daten
 
   int _countdownSeconds = 10;
-  final double _targetRadius = 20.0; // Lastenheft Punkt 11a
+  double _gpsInterval = 1.0;
+  double _radiusSetting = 25.0;
 
   DateTime? _startTime;
   Timer? _countdownTimer;
@@ -105,11 +107,32 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
       permission = await Geolocator.requestPermission();
     }
 
+    // Prüfen auf Stromsparmodus
+    try {
+      final battery = Battery();
+      bool isInPowerSaveMode = await battery.isInBatterySaveMode;
+      if (isInPowerSaveMode && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Achtung: Stromsparmodus ist aktiv! Das GPS-Tracking kann ungenau sein."),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Konnte Stromsparmodus nicht prüfen: $e");
+    }
+
     final prefs = await SharedPreferences.getInstance();
     int loadedCountdown = (prefs.getDouble('countdown') ?? 5.0).toInt();
+    double loadedInterval = prefs.getDouble('interval') ?? 1.0;
+    double loadedRadius = prefs.getDouble('target_radius') ?? 25.0;
+
     if (mounted) {
       setState(() {
         _countdownSeconds = loadedCountdown;
+        _gpsInterval = loadedInterval;
+        _radiusSetting = loadedRadius;
       });
     } else {
       _countdownSeconds = loadedCountdown;
@@ -177,12 +200,32 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
       }
     });
 
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: AndroidSettings(
+    // Konfiguration für Hintergrund-GPS (Wichtig für "Handy in der Tasche")
+    final LocationSettings locationSettings;
+    if (Theme.of(context).platform == TargetPlatform.android) {
+      locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: 0,
-        intervalDuration: Duration(milliseconds: 400),
-      ),
+        intervalDuration: Duration(milliseconds: (_gpsInterval * 1000).toInt()),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationText: "Deine Tour wird im Hintergrund aufgezeichnet",
+          notificationTitle: "Geisterfahrer Tracking aktiv",
+          enableWifiLock: true,
+        ),
+      );
+    } else {
+      locationSettings = AppleSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        activityType: ActivityType.fitness, // Optimiert für Sport/Bewegung
+        distanceFilter: 0,
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: true,
+        allowBackgroundLocationUpdates: true, // Wichtig für iOS Hintergrund-Stabilität
+      );
+    }
+
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
     ).listen((Position position) => _addPoint(position));
   }
 
@@ -218,7 +261,7 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
       );
       // Ziel erst nach 60 Sekunden "scharf" schalten, 
       // um bei Rundkursen ein sofortiges Beenden am Start zu verhindern.
-      if (elapsedSinceStart.inSeconds > 60 && distToTarget < 20.0) {
+      if (elapsedSinceStart.inSeconds > 60 && distToTarget < _radiusSetting) {
         _finishSession(true);
       }
     }
@@ -346,6 +389,29 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     _uiTicker?.cancel();
     _positionStream?.cancel();
     _recenterTimer?.cancel();
+
+    // Korrektur gegen "Track-Shrinking":
+    // Wenn das Ziel durch Annäherung erreicht wurde, hängen wir den exakten 
+    // Zielpunkt des Geistes an. So bleibt die Strecke über Generationen gleich lang.
+    if (reachedGoal && _targetPosition != null && _ghostPoints.isNotEmpty && _recordedPoints.isNotEmpty) {
+      // Berechne die Distanz vom letzten aufgezeichneten Punkt zum tatsächlichen Ziel
+      double gapDistance = Geolocator.distanceBetween(
+        _recordedPoints.last['lat'],
+        _recordedPoints.last['lng'],
+        _targetPosition!.latitude,
+        _targetPosition!.longitude,
+      );
+      
+      _totalDistance += gapDistance; // Distanz für die Anzeige/Speicherung korrigieren
+      
+      _recordedPoints.add({
+        'lat': _targetPosition!.latitude,
+        'lng': _targetPosition!.longitude,
+        'alt': _ghostPoints.last['alt'] ?? _recordedPoints.last['alt'],
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+    }
+
     _showSaveDialog(reachedGoal);
   }
 
@@ -706,6 +772,14 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
               ),
             ),
             _buildElevationStrip(),
+            // Werbeleiste Platzhalter
+            Container(
+              width: double.infinity,
+              height: 50,
+              color: Colors.grey[900],
+              alignment: Alignment.center,
+              child: const Text("WERBUNG", style: TextStyle(color: Colors.white24, fontSize: 10)),
+            ),
           ],
         ),
         ),
