@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'services/sensor_service.dart';
 import 'screens/dashboard_screen.dart'; // WICHTIG: Den Import oben hinzufügen!
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await MobileAds.instance.initialize(); // AdMob SDK initialisieren
   await SensorService().checkSensors();
   runApp(const GhostRideApp());
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'privacy_policy_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -107,6 +108,19 @@ _buildSettingCard(
     },
   ),
 ),
+            const SizedBox(height: 32),
+            _buildSectionTitle("RECHTLICHES"),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+              title: const Text("Datenschutzerklärung", style: TextStyle(color: Colors.white)),
+              trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white24, size: 16),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const PrivacyPolicyScreen()),
+                );
+              },
+            ),
           ],
         ),
       ),

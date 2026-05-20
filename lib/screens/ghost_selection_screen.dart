@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../database_helper.dart';
 import 'recording_screen.dart';
 import 'tour_detail_screen.dart';
@@ -18,11 +20,34 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
   late TabController _tabController;
   List<Map<String, dynamic>> _tours = [];
   bool _isLoading = true;
+  
+  BannerAd? _bannerAd;
+  bool _isAdLoaded = false;
+
   final Color ghostBlue = const Color(0xFF00B4FF);
   final Color userNeonGreen = const Color(0xFF00FF00);
 
   String _activityFilter = 'all'; // 'all', 'bike', 'run', 'car'
   bool _sortAscending = false; // false = neueste zuerst (desc)
+
+  void _loadBannerAd() {
+    _bannerAd = BannerAd(
+      adUnitId: defaultTargetPlatform == TargetPlatform.android
+          ? 'ca-app-pub-3940256099942544/6300978111'
+          : 'ca-app-pub-3940256099942544/2934735716',
+      request: const AdRequest(),
+      size: AdSize.banner,
+      listener: BannerAdListener(
+        onAdLoaded: (ad) {
+          if (mounted) setState(() => _isAdLoaded = true);
+        },
+        onAdFailedToLoad: (ad, err) {
+          debugPrint('BannerAd konnte nicht geladen werden: $err');
+          ad.dispose();
+        },
+      ),
+    )..load();
+  }
 
   @override
   void initState() {
@@ -34,6 +59,7 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
       initialIndex: widget.startInEditMode ? 1 : 0 
     );
     _loadTours();
+    _loadBannerAd();
   }
 
   Future<void> _loadTours() async {
@@ -438,12 +464,22 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
               ),
             ],
           ),
+      bottomNavigationBar: SafeArea(
+        child: SizedBox(
+          width: double.infinity,
+          height: AdSize.banner.height.toDouble(),
+          child: _isAdLoaded && _bannerAd != null
+              ? AdWidget(ad: _bannerAd!)
+              : Container(color: Colors.black),
+        ),
+      ),
     );
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _bannerAd?.dispose();
     super.dispose();
   }
 }

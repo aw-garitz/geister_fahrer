@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -41,12 +43,18 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
   double _oldHeading = 0.0;
   double _targetHeading = 0.0;
 
+  // AdMob Variablen
+  BannerAd? _bannerAd;
+  InterstitialAd? _interstitialAd;
+  bool _isAdLoaded = false;
+
   final double _zoomFactor = 20.0;
 
   bool _isRecording = false;
   bool _isCountingDown = true;
   bool _autoZoomActive = true;
   final bool _isLoadingGhostData = false; // Loading State für Geist-Daten
+  int _sessionCount = 0;
 
   int _countdownSeconds = 10;
   double _gpsInterval = 1.0;
@@ -67,6 +75,8 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
   void initState() {
     super.initState();
     WakelockPlus.enable();
+    _loadBannerAd();
+    _loadInterstitialAd();
 
     _markerController = AnimationController(
       vsync: this,
@@ -127,12 +137,14 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     int loadedCountdown = (prefs.getDouble('countdown') ?? 5.0).toInt();
     double loadedInterval = prefs.getDouble('interval') ?? 1.0;
     double loadedRadius = prefs.getDouble('target_radius') ?? 25.0;
+    int loadedSessionCount = prefs.getInt('session_count') ?? 0;
 
     if (mounted) {
       setState(() {
         _countdownSeconds = loadedCountdown;
         _gpsInterval = loadedInterval;
         _radiusSetting = loadedRadius;
+        _sessionCount = loadedSessionCount;
       });
     } else {
       _countdownSeconds = loadedCountdown;
@@ -170,6 +182,42 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     _startCountdown();
   }
 
+  void _loadBannerAd() {
+    _bannerAd = BannerAd(
+      adUnitId: defaultTargetPlatform == TargetPlatform.android
+          ? 'ca-app-pub-3940256099942544/6300978111' // Test-ID Android
+          : 'ca-app-pub-3940256099942544/2934735716', // Test-ID iOS
+      request: const AdRequest(),
+      size: AdSize.banner,
+      listener: BannerAdListener(
+        onAdLoaded: (ad) {
+          setState(() => _isAdLoaded = true);
+        },
+        onAdFailedToLoad: (ad, err) {
+          debugPrint('BannerAd konnte nicht geladen werden: $err');
+          ad.dispose();
+        },
+      ),
+    )..load();
+  }
+
+  void _loadInterstitialAd() {
+    InterstitialAd.load(
+      adUnitId: defaultTargetPlatform == TargetPlatform.android
+          ? 'ca-app-pub-3940256099942544/1033173712' // Test ID Android
+          : 'ca-app-pub-3940256099942544/4411468910', // Test ID iOS
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (ad) {
+          _interstitialAd = ad;
+        },
+        onAdFailedToLoad: (LoadAdError error) {
+          _interstitialAd = null;
+        },
+      ),
+    );
+  }
+
   void _startCountdown() {
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_countdownSeconds > 1) {
@@ -202,7 +250,7 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
 
     // Konfiguration für Hintergrund-GPS (Wichtig für "Handy in der Tasche")
     final LocationSettings locationSettings;
-    if (Theme.of(context).platform == TargetPlatform.android) {
+    if (defaultTargetPlatform == TargetPlatform.android) {
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: 0,
@@ -523,8 +571,12 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
               TextButton(
                 style: TextButton.styleFrom(foregroundColor: Colors.white54),
                 onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.pop(context);
+                  _showInterstitialThenFinish(() {
+                    if (mounted) {
+                      Navigator.pop(context); // Dialog schließen
+                      Navigator.pop(context); // Screen schließen
+                    }
+                  });
                 },
                 child: const Text("VERWERFEN",
                     style: TextStyle(fontWeight: FontWeight.bold)),
@@ -537,18 +589,20 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                 ),
-                onPressed: () async {
-                  if (_recordedPoints.isNotEmpty) {
-                    await DatabaseHelper().saveTour(
-                      nameController.text,
-                      selectedActivity,
-                      _recordedPoints,
-                    );
-                  }
-                  if (mounted) {
-                    Navigator.pop(context);
-                    Navigator.pop(context);
-                  }
+                onPressed: () {
+                  _showInterstitialThenFinish(() async {
+                    if (_recordedPoints.isNotEmpty) {
+                      await DatabaseHelper().saveTour(
+                        nameController.text,
+                        selectedActivity,
+                        _recordedPoints,
+                      );
+                    }
+                    if (mounted) {
+                      Navigator.pop(context); // Dialog schließen
+                      Navigator.pop(context); // Screen schließen
+                    }
+                  });
                 },
                 child: const Text("SPEICHERN",
                     style: TextStyle(fontWeight: FontWeight.bold)),
@@ -560,6 +614,32 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     );
   }
 
+  Future<void> _showInterstitialThenFinish(FutureOr<void> Function() onFinish) async {
+    final prefs = await SharedPreferences.getInstance();
+    _sessionCount++;
+    await prefs.setInt('session_count', _sessionCount);
+    debugPrint("Werbe-Zähler: $_sessionCount");
+
+    // Falls du zum Testen JEDES Mal Werbung sehen willst, ändere die Zeile in:
+    // if (_interstitialAd != null) {
+    if (_interstitialAd != null && _sessionCount % 2 == 0) {
+      _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
+        onAdDismissedFullScreenContent: (ad) async {
+          ad.dispose();
+          await onFinish();
+        },
+        onAdFailedToShowFullScreenContent: (ad, error) async {
+          ad.dispose();
+          await onFinish();
+        },
+      );
+      _interstitialAd!.show();
+    } else {
+      // Zähler ist ungerade ODER Ad wurde noch nicht fertig geladen
+      await onFinish();
+    }
+  }
+
   @override
   void dispose() {
     WakelockPlus.disable();
@@ -568,6 +648,8 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     _recenterTimer?.cancel();
     _positionStream?.cancel();
     _markerController.dispose();
+    _bannerAd?.dispose();
+    _interstitialAd?.dispose();
     super.dispose();
   }
 
@@ -689,6 +771,17 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
                         ),
                       MarkerLayer(
                         markers: [
+                          if (_targetPosition != null)
+                            Marker(
+                              point: _targetPosition!,
+                              width: 50,
+                              height: 50,
+                              child: const Icon(
+                                Icons.flag_circle_rounded,
+                                color: Colors.redAccent,
+                                size: 45,
+                              ),
+                            ),
                           if (_ghostPosition != null)
                             Marker(
                               point: _ghostPosition!,
@@ -772,16 +865,17 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
               ),
             ),
             _buildElevationStrip(),
-            // Werbeleiste Platzhalter
-            Container(
-              width: double.infinity,
-              height: 50,
-              color: Colors.grey[900],
-              alignment: Alignment.center,
-              child: const Text("WERBUNG", style: TextStyle(color: Colors.white24, fontSize: 10)),
-            ),
           ],
         ),
+        ),
+        bottomNavigationBar: SafeArea(
+          child: SizedBox(
+            width: double.infinity,
+            height: AdSize.banner.height.toDouble(),
+            child: _isAdLoaded && _bannerAd != null
+                ? AdWidget(ad: _bannerAd!)
+                : Container(color: Colors.black),
+          ),
         ),
       ),
     );
