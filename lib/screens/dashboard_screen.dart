@@ -33,8 +33,8 @@ class _MainDashboardState extends State<MainDashboard> {
   void _loadBannerAd() {
     _bannerAd = BannerAd(
       adUnitId: defaultTargetPlatform == TargetPlatform.android
-          ? 'ca-app-pub-3940256099942544/6300978111' // Test-ID Android
-          : 'ca-app-pub-3940256099942544/2934735716', // Test-ID iOS
+          ? 'ca-app-pub-5541011909698877/8135661416'
+          : 'ca-app-pub-5541011909698877/5126354695',
       request: const AdRequest(),
       size: AdSize.banner,
       listener: BannerAdListener(
@@ -197,12 +197,16 @@ class _MainDashboardState extends State<MainDashboard> {
   }
 
   Widget _buildStatusIcon() {
+    final bool isBaroAvailable = SensorService().isBarometerAvailable;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), shape: BoxShape.circle),
-      child: Icon(
-        SensorService().isBarometerAvailable ? Icons.height : Icons.height_outlined,
-        color: SensorService().isBarometerAvailable ? Colors.cyanAccent : Colors.grey,
+      child: Tooltip(
+        message: isBaroAvailable ? "Präzise Höhenmessung (Barometer)" : "Standard Höhenmessung (GPS)",
+        child: Icon(
+          Icons.terrain_rounded, // Symbolisiert Gelände/Höhenprofil
+          color: isBaroAvailable ? Colors.cyanAccent : Colors.white24,
+        ),
       ),
     );
   }

@@ -9,6 +9,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:battery_plus/battery_plus.dart';
+import 'package:sensors_plus/sensors_plus.dart';
+import 'dart:math';
 import '../database_helper.dart';
 
 class RecordingScreen extends StatefulWidget {
@@ -42,6 +44,12 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
   LatLng? _targetUserPosition;
   double _oldHeading = 0.0;
   double _targetHeading = 0.0;
+
+  // Barometer-Fusion Variablen
+  StreamSubscription<BarometerEvent>? _barometerSubscription;
+  double? _initialPressure;
+  double? _initialGpsAltitude;
+  double _lastBaroAltitude = 0.0;
 
   // AdMob Variablen
   BannerAd? _bannerAd;
@@ -117,6 +125,15 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
       permission = await Geolocator.requestPermission();
     }
 
+    if (permission == LocationPermission.deniedForever) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("GPS-Berechtigung wurde dauerhaft verweigert. Bitte in den Einstellungen aktivieren.")),
+        );
+      }
+      return;
+    }
+
     // Prüfen auf Stromsparmodus
     try {
       final battery = Battery();
@@ -185,8 +202,8 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
   void _loadBannerAd() {
     _bannerAd = BannerAd(
       adUnitId: defaultTargetPlatform == TargetPlatform.android
-          ? 'ca-app-pub-3940256099942544/6300978111' // Test-ID Android
-          : 'ca-app-pub-3940256099942544/2934735716', // Test-ID iOS
+          ? 'ca-app-pub-5541011909698877/8135661416'
+          : 'ca-app-pub-5541011909698877/5126354695',
       request: const AdRequest(),
       size: AdSize.banner,
       listener: BannerAdListener(
@@ -204,8 +221,8 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
   void _loadInterstitialAd() {
     InterstitialAd.load(
       adUnitId: defaultTargetPlatform == TargetPlatform.android
-          ? 'ca-app-pub-3940256099942544/1033173712' // Test ID Android
-          : 'ca-app-pub-3940256099942544/4411468910', // Test ID iOS
+          ? 'ca-app-pub-5541011909698877/1331110140'
+          : 'ca-app-pub-5541011909698877/1766224417',
       request: const AdRequest(),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
@@ -254,6 +271,7 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: 0,
+        forceLocationManager: true, // Nutzt GPS-Hardware direkt, falls Google Play Services gedrosselt werden
         intervalDuration: Duration(milliseconds: (_gpsInterval * 1000).toInt()),
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationText: "Deine Tour wird im Hintergrund aufgezeichnet",
@@ -272,6 +290,22 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
       );
     }
 
+    // Barometer-Stream starten
+    _initialPressure = null;
+    _initialGpsAltitude = null;
+    _barometerSubscription = barometerEventStream().listen((BarometerEvent event) {
+      if (_initialPressure == null && _currentPosition != null) {
+        _initialPressure = event.pressure;
+      }
+      
+      if (_initialPressure != null && _initialGpsAltitude != null) {
+        // Hypsometrische Formel zur Berechnung der relativen Höhe
+        // deltaH = 44330 * (1 - (P_aktuell/P_start)^(1/5.255))
+        double relativeHeight = 44330 * (1 - pow(event.pressure / _initialPressure!, 1 / 5.255).toDouble());
+        _lastBaroAltitude = _initialGpsAltitude! + relativeHeight;
+      }
+    });
+
     _positionStream = Geolocator.getPositionStream(
       locationSettings: locationSettings,
     ).listen((Position position) => _addPoint(position));
@@ -280,6 +314,15 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
   void _addPoint(Position pos) {
     if (!mounted) return;
     LatLng newLatLng = LatLng(pos.latitude, pos.longitude);
+
+    // Ersten GPS-Punkt als NN-Referenz für das Barometer nehmen
+    if (_initialGpsAltitude == null) {
+      _initialGpsAltitude = pos.altitude;
+      _lastBaroAltitude = pos.altitude;
+    }
+
+    // Wenn Barometer-Daten vorliegen, nutzen wir diese, sonst GPS
+    double effectiveAltitude = (_initialPressure != null) ? _lastBaroAltitude : pos.altitude;
 
     // Berechnungen sofort ausführen
     if (_polylinePoints.isNotEmpty) {
@@ -294,7 +337,7 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     _recordedPoints.add({
       'lat': pos.latitude,
       'lng': pos.longitude,
-      'alt': pos.altitude,
+      'alt': effectiveAltitude,
       'timestamp': DateTime.now().toIso8601String(),
     });
 
@@ -647,6 +690,7 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     _uiTicker?.cancel();
     _recenterTimer?.cancel();
     _positionStream?.cancel();
+    _barometerSubscription?.cancel();
     _markerController.dispose();
     _bannerAd?.dispose();
     _interstitialAd?.dispose();
@@ -691,6 +735,13 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
               ),
             ),
           ),
+          // Dezenter Barometer-Indikator
+          if (_initialPressure != null)
+            Positioned(
+              left: 10,
+              top: 0,
+              child: Icon(Icons.terrain_rounded, size: 12, color: userNeonGreen.withOpacity(0.5)),
+            ),
           if (altDiff != null)
             Positioned(
               right: 15,

@@ -56,7 +56,7 @@
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>Geisterfahrer benötigt den Standort im Hintergrund, um deine Tour lückenlos zu tracken.</string>
 	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX</string> <!-- DEINE ECHTE IOS APP ID HIER -->
+	<string>ca-app-pub-5541011909698877~8088090186</string>
 	<key>NSUserTrackingUsageDescription</key>
 	<string>Diese ID wird verwendet, um dir personalisierte Werbung anzuzeigen und die Relevanz der Anzeigen zu erhöhen.</string>
 	<key>SKAdNetworkItems</key>

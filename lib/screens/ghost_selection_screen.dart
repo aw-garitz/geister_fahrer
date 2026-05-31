@@ -33,8 +33,8 @@ class _GhostSelectionScreenState extends State<GhostSelectionScreen> with Single
   void _loadBannerAd() {
     _bannerAd = BannerAd(
       adUnitId: defaultTargetPlatform == TargetPlatform.android
-          ? 'ca-app-pub-3940256099942544/6300978111'
-          : 'ca-app-pub-3940256099942544/2934735716',
+          ? 'ca-app-pub-5541011909698877/8135661416'
+          : 'ca-app-pub-5541011909698877/5126354695',
       request: const AdRequest(),
       size: AdSize.banner,
       listener: BannerAdListener(
