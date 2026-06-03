@@ -521,7 +521,7 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
 
   void _showSaveDialog(bool reachedGoal) {
     TextEditingController nameController = TextEditingController(
-      text: "Tour ${DateTime.now().day}.${DateTime.now().month}.",
+      text: "${DateTime.now().day}.${DateTime.now().month}.",
     );
 
     // Berechne Vergleiche, falls Geist-Daten vorhanden
