@@ -24,6 +24,13 @@ workflows:
       - name: Flutter unit tests
         script: |
           [ -d "test" ] && flutter test || echo "Test directory not found, skipping tests..."
+      - name: Set up iOS signing
+        script: |
+          keychain initialize
+          # Holt die Zertifikate automatisch basierend auf der Bundle-ID in Xcode
+          app-store-connect fetch-signing-files "$(xcode-project get-bundle-id)" --type ios --install
+          # Wechselt von "Automatic Signing" auf das von Codemagic bereitgestellte Profil
+          xcode-project use-profiles
       - name: Build Android App Bundle
         script: |
           flutter build appbundle --release \
