@@ -34,7 +34,6 @@ workflows:
       - name: Build Android App Bundle
         script: |
           flutter build appbundle --release \
-            --build-name=1.0.0 \
             --build-number=$BUILD_NUMBER
       - name: Build iOS IPA
         script: |
@@ -42,7 +41,6 @@ workflows:
           # dass die Provisioning Profiles korrekt geladen werden.
           flutter build ipa --release \
             --export-method app-store \
-            --build-name=1.0.0 \
             --build-number=$BUILD_NUMBER
     artifacts:
       - build/app/outputs/bundle/release/*.aab
