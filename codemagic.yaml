@@ -17,6 +17,7 @@ workflows:
       - name: Set up Android signing
         script: |
           mkdir -p android/app
+          rm -f android/key.properties
           echo $CM_KEYSTORE | base64 --decode > android/app/upload-keystore.jks
           printf "keyAlias=%s\nkeyPassword=%s\nstorePassword=%s\nstoreFile=app/upload-keystore.jks\n" \
             "$CM_KEY_ALIAS" "$CM_KEY_PASSWORD" "$CM_KEYSTORE_PASSWORD" > android/key.properties
