@@ -27,17 +27,17 @@ workflows:
       - name: Set up iOS signing
         script: |
           keychain initialize
-          # HIER GEÄNDERT: Wir sagen explizit --type app-store statt --type ios
-          app-store-connect fetch-signing-files "$(xcode-project get-bundle-id)" --type app-store --install
-          # Erzwingt die Profile für den Release-Build
-          xcode-project use-profiles --type app-store
+          # 1. Wir nutzen 'detect-bundle-id' statt 'get-bundle-id'
+          # 2. Wir nutzen den korrekten Typ 'IOS_APP_STORE'
+          app-store-connect fetch-signing-files "$(xcode-project detect-bundle-id)" --type IOS_APP_STORE --install
+          # 3. 'use-profiles' wird ohne zusätzliche Argumente aufgerufen
+          xcode-project use-profiles
       - name: Build Android App Bundle
         script: |
           flutter build appbundle --release \
             --build-number=$BUILD_NUMBER
       - name: Build iOS IPA
         script: |
-          # --no-codesign verhindert, dass Xcode mitten im Build nach lokalen Konten sucht
           flutter build ipa --release \
             --no-codesign \
             --build-number=$BUILD_NUMBER
