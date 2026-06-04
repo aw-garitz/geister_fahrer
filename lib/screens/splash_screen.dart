@@ -84,10 +84,11 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
-                      Icons.psychology, // Geist/Gehirn Icon passend zum Namen
-                      size: 80,
-                      color: ghostBlue,
+                    Image.asset(
+                      'assets/icon/app_icon_ghost.png',
+                      width: 120,
+                      height: 120,
+                      fit: BoxFit.contain,
                     ),
                     const SizedBox(height: 20),
                     const Text(
