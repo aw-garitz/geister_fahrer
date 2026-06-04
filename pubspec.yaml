@@ -2,7 +2,7 @@ name: ghost_ride
 description: "A new Flutter project for bike racing against ghosts."
 publish_to: 'none'
 
-version: 1.0.3+3
+version: 1.0.4+4
 
 environment:
   sdk: ^3.9.0

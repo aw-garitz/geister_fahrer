@@ -27,20 +27,19 @@ workflows:
       - name: Set up iOS signing
         script: |
           keychain initialize
-          # Holt die Zertifikate automatisch basierend auf der Bundle-ID in Xcode
-          app-store-connect fetch-signing-files "$(xcode-project get-bundle-id)" --type ios --install
-          # Wechselt von "Automatic Signing" auf das von Codemagic bereitgestellte Profil
-          xcode-project use-profiles
+          # HIER GEÄNDERT: Wir sagen explizit --type app-store statt --type ios
+          app-store-connect fetch-signing-files "$(xcode-project get-bundle-id)" --type app-store --install
+          # Erzwingt die Profile für den Release-Build
+          xcode-project use-profiles --type app-store
       - name: Build Android App Bundle
         script: |
           flutter build appbundle --release \
             --build-number=$BUILD_NUMBER
       - name: Build iOS IPA
         script: |
-          # Da wir Hintergrund-GPS nutzen, stellt Codemagic sicher, 
-          # dass die Provisioning Profiles korrekt geladen werden.
+          # --no-codesign verhindert, dass Xcode mitten im Build nach lokalen Konten sucht
           flutter build ipa --release \
-            --export-method app-store \
+            --no-codesign \
             --build-number=$BUILD_NUMBER
     artifacts:
       - build/app/outputs/bundle/release/*.aab
