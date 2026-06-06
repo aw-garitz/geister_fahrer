@@ -17,23 +17,25 @@ class PrivacyPolicyScreen extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSection("1. Datenerfassung", 
-              "Geisterfahrer erfasst GPS-Standortdaten, um deine Touren aufzuzeichnen und den Vergleich mit 'Geistern' zu ermöglichen. Diese Daten werden lokal auf deinem Gerät in einer Datenbank gespeichert."),
-            _buildSection("2. Hintergrund-Standort", 
-              "Um Touren auch bei ausgeschaltetem Bildschirm lückenlos aufzuzeichnen, fordert die App Zugriff auf den Standort im Hintergrund an."),
-            _buildSection("3. Google AdMob", 
-              "Diese App nutzt Google AdMob zur Anzeige von Werbung. Google verwendet IDs für Werbezwecke (z. B. die Werbe-ID), um Anzeigen zu personalisieren und Statistiken zu erstellen."),
-            _buildSection("4. Speicherort", 
-              "Alle aufgezeichneten Fahrten verbleiben auf deinem Gerät, sofern du keine externe Backup-Funktion deines Betriebssystems nutzt."),
-            const SizedBox(height: 30),
-            const Text("Stand: Oktober 2023", style: TextStyle(color: Colors.white38, fontSize: 12)),
-            const SizedBox(height: 50),
-          ],
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSection("1. Datenerfassung", 
+                "Geisterfahrer erfasst GPS-Standortdaten, um deine Touren aufzuzeichnen und den Vergleich mit 'Geistern' zu ermöglichen. Diese Daten werden lokal auf deinem Gerät in einer Datenbank gespeichert."),
+              _buildSection("2. Hintergrund-Standort", 
+                "Um Touren auch bei ausgeschaltetem Bildschirm lückenlos aufzuzeichnen, fordert die App Zugriff auf den Standort im Hintergrund an."),
+              _buildSection("3. Google AdMob", 
+                "Diese App nutzt Google AdMob zur Anzeige von Werbung. Google verwendet IDs für Werbezwecke (z. B. die Werbe-ID), um Anzeigen zu personalisieren und Statistiken zu erstellen."),
+              _buildSection("4. Speicherort", 
+                "Alle aufgezeichneten Fahrten verbleiben auf deinem Gerät, sofern du keine externe Backup-Funktion deines Betriebssystems nutzt."),
+              const SizedBox(height: 30),
+              const Text("Stand: Oktober 2023", style: TextStyle(color: Colors.white38, fontSize: 12)),
+              const SizedBox(height: 50),
+            ],
+          ),
         ),
       ),
     );

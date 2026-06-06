@@ -37,6 +37,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.setDouble(key, value);
   }
 
+  Future<void> _saveBoolSetting(String key, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(key, value);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -51,79 +56,81 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSectionTitle("RENN-START"),
-            _buildSettingCard(
-              title: "Countdown: ${_countdown.toInt()} Sek.",
-              subtitle: "Zeit um die Füße in die Pedale zu klicken",
-              child: Slider(
-                value: _countdown,
-                min: 0,
-                max: 30,
-                divisions: 6,
-                activeColor: ghostBlue,
-                inactiveColor: Colors.white10,
-                onChanged: (val) {
-                  setState(() => _countdown = val);
-                  _saveSetting('countdown', val);
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionTitle("RENN-START"),
+              _buildSettingCard(
+                title: "Countdown: ${_countdown.toInt()} Sek.",
+                subtitle: "Zeit um die Füße in die Pedale zu klicken",
+                child: Slider(
+                  value: _countdown,
+                  min: 0,
+                  max: 30,
+                  divisions: 6,
+                  activeColor: ghostBlue,
+                  inactiveColor: Colors.white10,
+                  onChanged: (val) {
+                    setState(() => _countdown = val);
+                    _saveSetting('countdown', val);
+                  },
+                ),
+              ),
+              const SizedBox(height: 32),
+              _buildSectionTitle("PRÄZISION"),
+              _buildSettingCard(
+                title: "Intervall: ${_interval.toStringAsFixed(1)} Sek.",
+                subtitle: "Häufigkeit der GPS-Abfrage (Empfehlung: 1.0)",
+                child: Slider(
+                  value: _interval,
+                  min: 0.5,
+                  max: 5.0,
+                  divisions: 9,
+                  activeColor: ghostBlue,
+                  inactiveColor: Colors.white10,
+                  onChanged: (val) {
+                    setState(() => _interval = val);
+                    _saveSetting('interval', val);
+                  },
+                ),
+              ),
+              // Unter dem Intervall-Slider im SettingsScreen:
+              _buildSectionTitle("ZIEL-BEREICH"),
+              _buildSettingCard(
+                title: "Ziel-Radius: ${_radius.toInt()} Meter",
+                subtitle: "Umkreis, in dem das Ziel als 'erreicht' gilt",
+                child: Slider(
+                  value: _radius, // In initState laden (default 25.0)
+                  min: 15,
+                  max: 80,
+                  divisions: 18,
+                  activeColor: ghostBlue,
+                  onChanged: (val) {
+                    setState(() => _radius = val);
+                    _saveSetting('target_radius', val);
+                  },
+                ),
+              ),
+              const SizedBox(height: 32),
+              _buildSectionTitle("RECHTLICHES"),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                title: const Text("Datenschutzerklärung", style: TextStyle(color: Colors.white)),
+                trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white24, size: 16),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const PrivacyPolicyScreen()),
+                  );
                 },
               ),
-            ),
-            const SizedBox(height: 32),
-            _buildSectionTitle("PRÄZISION"),
-            _buildSettingCard(
-              title: "Intervall: ${_interval.toStringAsFixed(1)} Sek.",
-              subtitle: "Häufigkeit der GPS-Abfrage (Empfehlung: 1.0)",
-              child: Slider(
-                value: _interval,
-                min: 0.5,
-                max: 5.0,
-                divisions: 9,
-                activeColor: ghostBlue,
-                inactiveColor: Colors.white10,
-                onChanged: (val) {
-                  setState(() => _interval = val);
-                  _saveSetting('interval', val);
-                },
-              ),
-            ),
-            // Unter dem Intervall-Slider im SettingsScreen:
-_buildSectionTitle("ZIEL-BEREICH"),
-_buildSettingCard(
-  title: "Ziel-Radius: ${_radius.toInt()} Meter",
-  subtitle: "Umkreis, in dem das Ziel als 'erreicht' gilt",
-  child: Slider(
-    value: _radius, // In initState laden (default 25.0)
-    min: 15,
-    max: 80,
-    divisions: 18,
-    activeColor: ghostBlue,
-    onChanged: (val) {
-      setState(() => _radius = val);
-      _saveSetting('target_radius', val);
-    },
-  ),
-),
-            const SizedBox(height: 32),
-            _buildSectionTitle("RECHTLICHES"),
-            ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-              title: const Text("Datenschutzerklärung", style: TextStyle(color: Colors.white)),
-              trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white24, size: 16),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const PrivacyPolicyScreen()),
-                );
-              },
-            ),
           ],
         ),
       ),
+    ),
     );
   }
 

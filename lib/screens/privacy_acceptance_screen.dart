@@ -57,19 +57,22 @@ class PrivacyAcceptanceScreen extends StatelessWidget {
               ),
             ),
           ),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16.0),
-            color: Colors.black,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: ghostBlue,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(vertical: 15),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          SafeArea(
+            top: false,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16.0),
+              color: Colors.black,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: ghostBlue,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: () => _acceptPrivacy(context),
+                child: const Text("ZUSTIMMEN & STARTEN", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ),
-              onPressed: () => _acceptPrivacy(context),
-              child: const Text("ZUSTIMMEN & STARTEN", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
           ),
         ],

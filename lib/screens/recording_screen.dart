@@ -64,7 +64,7 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
   final bool _isLoadingGhostData = false; // Loading State für Geist-Daten
   int _sessionCount = 0;
 
-  int _countdownSeconds = 10;
+  int _countdownSeconds = 5;
   double _gpsInterval = 1.0;
   double _radiusSetting = 25.0;
 
@@ -110,8 +110,8 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
       });
 
       // Performance-Optimierung: Kamera nur im Single-Modus flüssig mitbewegen.
-      // Im Ghost-Modus ist fitCamera zu schwer für 60fps; dort reicht der 100ms Ticker.
-      if (widget.ghostTourId == null) {
+      // Im Ghost-Modus erfolgt das Update über den 100ms Ticker in _updateGhostLogic.
+      if (_autoZoomActive && widget.ghostTourId == null) {
         _updateCamera();
       }
     });
@@ -120,11 +120,15 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
   }
 
   Future<void> _prepareRecording() async {
+    // 1. Berechtigungen prüfen (schnell)
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
 
+    // 2. Einstellungen sofort laden
+    final prefs = await SharedPreferences.getInstance();
+    
     if (permission == LocationPermission.deniedForever) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -134,6 +138,23 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
       return;
     }
 
+    if (mounted) {
+      setState(() {
+        _countdownSeconds = (prefs.getDouble('countdown') ?? 5.0).toInt();
+        _gpsInterval = prefs.getDouble('interval') ?? 1.0;
+        _radiusSetting = prefs.getDouble('target_radius') ?? 25.0;
+        _sessionCount = prefs.getInt('session_count') ?? 0;
+      });
+    }
+
+    // 3. Countdown SOFORT starten
+    _startCountdown();
+
+    // 4. Alles andere (GPS-Fix, Akku, Geist) läuft jetzt parallel im Hintergrund
+    _loadInitializationData(prefs);
+  }
+
+  Future<void> _loadInitializationData(SharedPreferences prefs) async {
     // Prüfen auf Stromsparmodus
     try {
       final battery = Battery();
@@ -148,23 +169,6 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
       }
     } catch (e) {
       debugPrint("Konnte Stromsparmodus nicht prüfen: $e");
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    int loadedCountdown = (prefs.getDouble('countdown') ?? 5.0).toInt();
-    double loadedInterval = prefs.getDouble('interval') ?? 1.0;
-    double loadedRadius = prefs.getDouble('target_radius') ?? 25.0;
-    int loadedSessionCount = prefs.getInt('session_count') ?? 0;
-
-    if (mounted) {
-      setState(() {
-        _countdownSeconds = loadedCountdown;
-        _gpsInterval = loadedInterval;
-        _radiusSetting = loadedRadius;
-        _sessionCount = loadedSessionCount;
-      });
-    } else {
-      _countdownSeconds = loadedCountdown;
     }
 
     if (widget.ghostTourId != null) {
@@ -185,18 +189,15 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     try {
       Position pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 3),
+        timeLimit: const Duration(seconds: 5),
       );
       if (mounted) {
         setState(() {
           _currentPosition = LatLng(pos.latitude, pos.longitude);
         });
-        _mapController.move(_currentPosition!, _zoomFactor);
         _updateCamera();
       }
     } catch (_) {}
-
-    _startCountdown();
   }
 
   void _loadBannerAd() {
@@ -236,6 +237,11 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
   }
 
   void _startCountdown() {
+    if (_countdownSeconds <= 0) {
+      _startTracking();
+      return;
+    }
+    
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_countdownSeconds > 1) {
         if (mounted) setState(() => _countdownSeconds--);
@@ -362,6 +368,10 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
     _targetUserPosition = newLatLng;
     _oldHeading = _currentHeading;
     _targetHeading = pos.heading;
+    // Heading nur aktualisieren, wenn wir uns wirklich bewegen (Vermeidet Zappeln im Stand)
+    if (pos.heading != 0 || pos.speed > 0.5) {
+      _targetHeading = pos.heading;
+    }
     
     _markerController.forward(from: 0.0);
   }
@@ -417,21 +427,25 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
 
   void _updateCamera() {
     if (!_autoZoomActive || _currentPosition == null) return;
+
     if (widget.ghostTourId != null &&
-        _ghostPosition != null &&
-        _currentPosition != null) {
+        _ghostPosition != null) {
+      // DUELL-MODUS: Beide im Bild halten (Karte bleibt genordet)
       final bounds = LatLngBounds(_currentPosition!, _ghostPosition!);
       _mapController.fitCamera(
         CameraFit.bounds(
           bounds: bounds,
-          padding: const EdgeInsets.fromLTRB(40, 140, 40, 150), // Oben 100 für Zeit, Unten 140 für Button
+          padding: const EdgeInsets.fromLTRB(40, 140, 40, 150),
           minZoom: 5.0,
           maxZoom: _zoomFactor,
         ),
       );
-    } else if (_currentPosition != null) {
+    } else {
+      // STANDARD: Zentrieren auf User, keine Rotation.
       _mapController.move(_currentPosition!, _zoomFactor);
     }
+    // Karte explizit auf Norden fixieren
+    _mapController.rotate(0);
   }
 
   void _handleMapInteraction(MapEvent event) {
@@ -634,12 +648,22 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
                 ),
                 onPressed: () {
                   _showInterstitialThenFinish(() async {
-                    if (_recordedPoints.isNotEmpty) {
-                      await DatabaseHelper().saveTour(
-                        nameController.text,
-                        selectedActivity,
-                        _recordedPoints,
-                      );
+                    try {
+                      if (_recordedPoints.isNotEmpty) {
+                        await DatabaseHelper().saveTour(
+                          nameController.text,
+                          selectedActivity,
+                          _recordedPoints,
+                        );
+                        debugPrint("Tour erfolgreich gespeichert: ${nameController.text}");
+                      }
+                    } catch (e) {
+                      debugPrint("FEHLER beim Speichern der Tour: $e");
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text("Fehler beim Speichern: $e")),
+                        );
+                      }
                     }
                     if (mounted) {
                       Navigator.pop(context); // Dialog schließen
@@ -850,7 +874,7 @@ class _RecordingScreenState extends State<RecordingScreen> with SingleTickerProv
                               width: 45,
                               height: 45,
                               child: Transform.rotate(
-                                angle: _currentHeading * (3.14159 / 180),
+                                angle: _currentHeading * (pi / 180),
                                 child: Icon(
                                   Icons.navigation,
                                   color: userNeonGreen,
