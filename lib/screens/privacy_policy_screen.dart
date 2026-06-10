@@ -32,7 +32,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
               _buildSection("4. Speicherort", 
                 "Alle aufgezeichneten Fahrten verbleiben auf deinem Gerät, sofern du keine externe Backup-Funktion deines Betriebssystems nutzt."),
               const SizedBox(height: 30),
-              const Text("Stand: Oktober 2023", style: TextStyle(color: Colors.white38, fontSize: 12)),
+              const Text("Stand: Juni 2026", style: TextStyle(color: Colors.white38, fontSize: 12)),
               const SizedBox(height: 50),
             ],
           ),
